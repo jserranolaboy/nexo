@@ -1,0 +1,80 @@
+name: Nexo
+options:
+  bundleIdPrefix: org.nexo
+  deploymentTarget:
+    iOS: '18.0'
+packages:
+  NexoCore:
+    path: ../Core
+  NexoKit:
+    path: ../Native
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS.git
+    exactVersion: 9.2.0
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    TARGETED_DEVICE_FAMILY: '1,2'
+    MARKETING_VERSION: '0.4.1'
+    CURRENT_PROJECT_VERSION: 11
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  Nexo:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Resources/Web
+        type: folder
+        buildPhase: resources
+      - path: Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
+      - path: Resources/Assets.xcassets
+    dependencies:
+      - package: NexoCore
+      - package: NexoKit
+      - package: GoogleSignIn
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.nexo.ios
+        INFOPLIST_FILE: Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    scheme:
+      testTargets: [NexoTests]
+  NexoTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+      - path: ../Native/Tests/NexoKitTests
+        excludes: [LiveDriveTests.swift]
+      - path: ../Core/Tests/NexoCoreTests
+        excludes: [PDFThumbnailTests.swift]
+    dependencies:
+      - target: Nexo
+      - package: NexoCore
+      - package: NexoKit
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: org.nexo.ios.tests
+  NexoUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Nexo
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: org.nexo.ios.uitests
+schemes:
+  NexoInteraction:
+    build:
+      targets:
+        Nexo: all
+        NexoUITests: [test]
+    test:
+      targets: [NexoUITests]

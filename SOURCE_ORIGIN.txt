@@ -3,4 +3,6 @@ Source commit: 615057e5c568ef86276dd10131467fde8f20d737
 Source client: Next/Experience
 Shared core: Next/Sources/VRRCore
 Prepared: 2026-10-21
-Runtime sources preserved. Documentation updated. Personal iOS signing team and OAuth configuration removed. Generated images and build outputs excluded. No Git history included.
+Initial publication preserved runtime sources. Later development is recorded in the public Git history. Personal iOS signing team and OAuth configuration removed. Generated images and build outputs excluded. No private Git history included.
+
+Current layout: Core, Native, Web, iOS, scripts. See docs/ARCHITECTURE.md for compatibility identifiers retained from the original client.

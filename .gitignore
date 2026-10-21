@@ -35,4 +35,7 @@ Backups/
 *.zip
 *.app/
 output/
-Next/Experience/iOS/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+iOS/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+
+# Generated iOS frontend resources
+iOS/Resources/Web/
