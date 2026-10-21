@@ -1,0 +1,241 @@
+/* Interface fields only: the document canvas retains its printed geometry. */
+:root {
+  --field-height: 40px;
+  --field-font: 14px;
+  --field-label: 12px;
+  --field-radius: 10px;
+  --field-gap: 18px;
+  --field-fill: #f5f5f7;
+  --field-border: #d8d8de;
+}
+:root[data-theme='dark'] {
+  --field-fill: #2c2c30;
+  --field-border: #505057;
+}
+:root.native-ios {
+  --field-height: 48px;
+  --field-font: 16px;
+  --field-label: 13px;
+  --field-radius: 12px;
+  --field-gap: 20px;
+}
+@media (pointer: coarse), (max-width: 700px) {
+  :root {
+    --field-height: 48px;
+    --field-font: 16px;
+    --field-label: 13px;
+    --field-radius: 12px;
+    --field-gap: 20px;
+  }
+}
+
+:root
+  :is(
+    .studio-field,
+    .studio-tools,
+    .studio-header,
+    .inline-name,
+    .drive-spaces)
+  :is(
+    input:where(:not([type='checkbox']):not([type='range']):not([type='color'])),
+    textarea,
+    select
+  ) {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  min-height: var(--field-height);
+  height: var(--field-height);
+  border: 1px solid var(--field-border);
+  border-radius: var(--field-radius);
+  background: var(--field-fill);
+  color: var(--ink);
+  padding: 8px 12px;
+  font-size: var(--field-font);
+  line-height: 1.5;
+  caret-color: var(--coral);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+:is(
+    .studio-field,
+    .studio-tools,
+    .inline-name,
+    .drive-spaces)
+  :is(input, textarea, select):focus-visible {
+  outline: none;
+  border-color: var(--coral);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--coral) 18%, transparent);
+}
+:is(
+    .studio-field,
+    .studio-tools,
+    .inline-name,
+    .drive-spaces)
+  :is(input, textarea)::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+:is(
+    .studio-field,
+    .studio-tools,
+    .inline-name,
+    .drive-spaces)
+  :is(input, textarea, select):disabled {
+  opacity: 0.6;
+}
+:root :is(.studio-field) textarea {
+  height: auto;
+  min-height: 96px;
+  max-height: min(280px, 40dvh);
+  overflow: auto;
+  resize: vertical;
+}
+:is( .studio-field, .studio-tools) select {
+  padding-right: 28px;
+}
+
+.studio-field,
+.studio-tools label,
+.drive-spaces label {
+  font-size: var(--field-label);
+  font-weight: 500;
+  line-height: 1.4;
+  gap: 8px;
+}
+
+.form-footer {
+  margin-top: 20px;
+  padding-top: 16px;
+  flex-wrap: wrap;
+}
+.inline-name {
+  align-items: center;
+  gap: 8px;
+}
+.inline-name .icon-button {
+  flex-shrink: 0;
+}
+.studio-header .document-name {
+  min-width: 120px;
+  max-width: 400px;
+}
+.studio-tools .column-control {
+  min-height: var(--field-height);
+  height: auto;
+}
+.studio-tools .tool-section h3 {
+  font-size: var(--field-label);
+}
+.search-field {
+  min-width: 0;
+  min-height: var(--field-height);
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--field-radius);
+  background: var(--field-fill);
+  padding: 0 12px;
+}
+.search-field > svg {
+  flex-shrink: 0;
+}
+.search-field:focus-within {
+  border: 1px solid var(--coral);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--coral) 15%, transparent);
+}
+.search-field input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  min-height: calc(var(--field-height) - 2px);
+  font-size: var(--field-font);
+  line-height: 1.5;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  outline: none;
+  background: transparent;
+  padding: 8px 0;
+  color: var(--ink);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.search-field input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+.search-field input::-webkit-search-cancel-button,
+.search-field input::-webkit-search-decoration {
+  -webkit-appearance: none;
+}
+.search-clear {
+  width: var(--field-height);
+  min-height: var(--field-height);
+  margin: -1px -9px -1px 0;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: var(--field-radius);
+  color: var(--muted);
+}
+
+.dialog:not(.template-sheet) {
+  max-width: calc(100vw - 32px);
+  max-height: calc(var(--viewport-height, 100dvh) - 32px);
+  overflow: hidden;
+}
+.dialog:not(.template-sheet) .dialog-content {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(var(--viewport-height, 100dvh) - 34px);
+  padding: 24px;
+  overflow: hidden;
+}
+.dialog-content > header {
+  flex-shrink: 0;
+}
+.dialog-body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 3px;
+  margin: -3px;
+}
+.template-sheet .dialog-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  margin: 0;
+}
+@media (max-width: 560px) {
+  
+  
+  
+  
+  .dialog:not(.template-sheet) .dialog-content {
+    padding: 20px;
+  }
+  .dialog-content > header {
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+}
+
+@media (pointer: coarse) {
+  .form-footer .button {
+    min-height: 44px;
+  }
+  :is(.studio-field) textarea {
+    resize: none;
+  }
+}
+@media (prefers-contrast: more) {
+  :root {
+    --field-border: var(--muted);
+  }
+  .search-field {
+    border-color: var(--field-border);
+  }
+}

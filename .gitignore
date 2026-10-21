@@ -1,0 +1,38 @@
+# macOS, Swift Package Manager, and Xcode build output
+.DS_Store
+.build/
+.swiftpm/
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+__pycache__/
+.pytest_cache/
+*.pyc
+# Custom experience toolchain
+node_modules/
+dist/
+*.tsbuildinfo
+GoogleOAuth.json
+client_secret*.json
+
+# Private local configuration, data and generated packages
+.env
+.env.*
+!.env.example
+workspace-v1.json
+vrr-data.json
+Backups/
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile
+*.key
+*.pem
+*.ipa
+*.dmg
+*.zip
+*.app/
+output/
+Next/Experience/iOS/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png

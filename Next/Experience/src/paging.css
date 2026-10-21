@@ -1,0 +1,6 @@
+/* Native scroll snapping keeps the page attached to the finger, even while JS is busy. */
+
+.paper-scroll {
+  overscroll-behavior-x: contain;
+}
+

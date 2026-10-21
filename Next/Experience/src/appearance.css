@@ -1,0 +1,293 @@
+:root {
+  color-scheme: light;
+  --surface: #fff;
+  --surface-2: #eeeef1;
+  --surface-3: #e4e4e9;
+}
+.appearance-control {
+  margin-bottom: 24px;
+}
+.appearance-control h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.appearance-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 5px;
+  background: var(--surface-2);
+  border-radius: 14px;
+}
+.appearance-options button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid transparent;
+}
+.appearance-options button[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line);
+  box-shadow: 0 1px 4px #0000000a;
+}
+.appearance-options button:hover {
+  color: var(--ink);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  background: #171719;
+  color: #f2f2f7;
+  --ink: #f2f2f7;
+  --muted: #acacb5;
+  --green: #e4e4e9;
+  --coral: #64a8ff;
+  --line: #424247;
+  --paper: #232326;
+  --surface: #232326;
+  --surface-2: #2c2c30;
+  --surface-3: #37373c;
+  --glass: #232326e8;
+  --glass-border: #ffffff14;
+  --glass-shadow: 0 12px 36px #00000030, inset 0 1px 0 #ffffff0d;
+}
+
+/* Scope the interface palette; document pixels and imported assets stay intact. */
+[data-theme='dark'] {
+  ::selection {
+    background: #385d89;
+    color: #fff;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #62626b;
+  }
+  :is(button, input, textarea, select):focus-visible {
+    outline-color: var(--coral);
+  }
+  :is(input, textarea)::placeholder {
+    color: #9999a3;
+  }
+  :is(
+    .dialog,
+    .studio-tools,
+    .touch-sheet,
+    .sheet-handle
+  ) {
+    background: var(--surface);
+    border-color: var(--line);
+  }
+  .dialog {
+    color: var(--ink);
+    box-shadow: 0 24px 90px #00000060;
+  }
+  :is(.dialog, .touch-sheet)::backdrop {
+    background: #00000066;
+  }
+  
+  :is(
+    .drive-spaces,
+    .selection-tools) {
+    background: var(--surface-2);
+  }
+  :is(
+    kbd,
+    .drive-pill,
+    .studio-mode,
+    .segmented,
+    .tool-grid > button
+  ) {
+    background: var(--surface-3);
+    border-color: var(--line);
+    color: var(--ink);
+  }
+  :is(
+    .button,
+    .tool-button,
+    .person-groups-editor,
+    .original-pdf-tag
+  ) {
+    border-color: var(--line);
+  }
+  :is(.button, .icon-button, .tool-button):hover:not(:disabled),
+.tool-grid > button:hover {
+    background: var(--surface-3);
+  }
+  .button.primary {
+    background: #e7e7ed;
+    border-color: #e7e7ed;
+    color: #1d1d1f;
+  }
+  .button.primary:hover:not(:disabled) {
+    background: #fff;
+  }
+  
+  
+  
+  
+  .avatar {
+    background: color-mix(in srgb, var(--avatar-color) 16%, #232326);
+    color: #ededf2;
+  }
+  
+  .avatar.present i {
+    background: #70bc8c;
+  }
+  .avatar.absent i {
+    background: #ea8c84;
+  }
+  .avatar.excused i {
+    background: #b4a4dc;
+  }
+  :is(
+    .ring strong small,
+    .paper-toolbar,
+    .paper-bottom,
+    .original-pdf-tag) {
+    color: var(--muted);
+  }
+  .day:hover:not(.today),
+.day.chosen:not(.today) {
+    background: var(--surface-3);
+  }
+  .day.today {
+    background: #0a64d3;
+    color: #fff;
+  }
+  .day.chosen:not(.today) {
+    box-shadow: inset 0 0 0 1px #7c7c89;
+  }
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  .ring-track {
+    stroke: #3e3e45;
+    background: #3e3e45;
+  }
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  :is( .studio-tools) select,
+.drive-spaces input,
+.inline-name input {
+    background: var(--surface-2);
+    color: var(--ink);
+    border-color: var(--line);
+  }
+  
+  
+  .form-error,
+.drive-error,
+.toast.error {
+    background: #4a302f;
+    color: #ffc2bb;
+    border-color: #74514e;
+  }
+  .danger-text {
+    color: #ffaaa2;
+  }
+  
+  .toast {
+    background: #38383e;
+    color: var(--ink);
+    border-color: #5a5a64;
+    box-shadow: 0 12px 32px #00000060;
+  }
+  .spinner {
+    border-color: var(--line);
+    border-top-color: var(--ink);
+  }
+  
+  .sheet-handle span {
+    background: #707079;
+  }
+  .studio-mode > button,
+.segmented > button {
+    color: var(--muted);
+  }
+  .studio-mode > button.active,
+.segmented > button.active {
+    background: #4a4a52;
+    color: var(--ink);
+  }
+  .paper-workspace {
+    background: #111113;
+  }
+  .paper-bottom {
+    background: var(--surface);
+    border-color: var(--line);
+  }
+  .paper-toolbar {
+    border-color: var(--line);
+  }
+  .paper-size,
+.final-preview > img {
+    box-shadow: 0 8px 32px #00000055;
+  }
+  .studio-tools-backdrop {
+    background: #00000080;
+  }
+}
+
+/* A template preview is a sheet of paper, not an interface surface. */
+:is(.design-paper, .mini-paper) {
+  color-scheme: light;
+  --ink: #1d1d1f;
+  --muted: #6e6e73;
+  --green: #262629;
+  --line: #dedee3;
+  --paper: #ffffff;
+  color: #222;
+}
+[data-theme='dark'] .mini-paper {
+  border-color: #d4d4d8;
+}
+
+@media (prefers-contrast: more) {
+  :root[data-theme='dark'] {
+    --muted: #d0d0d8;
+    --line: #7a7a85;
+  }
+  [data-theme='dark'] :is( .dialog) {
+    border-color: var(--line);
+  }
+}
+@media (max-width: 400px) {
+  .appearance-options button {
+    flex-direction: column;
+    gap: 5px;
+    padding: 8px 2px;
+  }
+}

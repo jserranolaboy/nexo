@@ -1,0 +1,6 @@
+Nexo source snapshot
+Source commit: 615057e5c568ef86276dd10131467fde8f20d737
+Source client: Next/Experience
+Shared core: Next/Sources/VRRCore
+Prepared: 2026-10-21
+Runtime sources preserved. Documentation updated. Personal iOS signing team and OAuth configuration removed. Generated images and build outputs excluded. No Git history included.

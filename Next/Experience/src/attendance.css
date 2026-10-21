@@ -1,0 +1,11 @@
+
+
+@keyframes register-person-enter {
+  from {
+    transform: translateY(6px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+

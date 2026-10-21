@@ -1,0 +1,172 @@
+/* Navigation stays light; information surfaces remain opaque and readable. */
+:root {
+  --glass: rgba(250, 250, 252, 0.78);
+  --glass-border: rgba(255, 255, 255, 0.85);
+  --glass-shadow: 0 12px 36px #1d1d1f12, 0 2px 6px #1d1d1f08, inset 0 1px 0 #ffffffbd;
+}
+body {
+  overflow-x: clip;
+}
+
+.day {
+  border-radius: 18px;
+}
+.dialog {
+  border-radius: 22px;
+  box-shadow: 0 24px 90px #1d1d1f24;
+}
+.dialog-content {
+  border-radius: inherit;
+  padding: 28px;
+}
+.dialog h2 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.6px;
+}
+.dialog-content > header {
+  margin-bottom: 22px;
+}
+.drive-description,
+.drive-error,
+.drive-details {
+  font-size: 13px;
+}
+.drive-details-toggle,
+.drive-another {
+  font-size: 12px;
+  min-height: 36px;
+}
+.drive-account {
+  overflow-wrap: anywhere;
+  gap: 10px;
+}
+.drive-spaces form > div {
+  flex-wrap: wrap;
+}
+.drive-spaces input {
+  min-width: 180px;
+}
+
+.sheet-handle {
+  display: none;
+}
+@media (max-width: 700px) {
+  
+  
+  .scene-heading {
+    margin-bottom: 24px;
+  }
+  .scene-heading h1 {
+    font-size: 28px;
+    letter-spacing: -1.1px;
+  }
+  
+  
+  
+  
+  .dialog-content {
+    padding: 24px 20px;
+  }
+  .sheet-handle {
+    display: grid;
+    place-items: center;
+    height: 30px;
+    touch-action: none;
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #f9f9fb;
+  }
+  .sheet-handle span {
+    width: 36px;
+    height: 5px;
+    border-radius: 4px;
+    background: #c9c9ce;
+  }
+  .touch-sheet {
+    padding-top: 4px;
+  }
+  
+}
+@media (prefers-reduced-transparency: reduce) {
+  
+  .dialog::backdrop,
+.touch-sheet::backdrop {
+    backdrop-filter: none;
+  }
+}
+@media (prefers-contrast: more) {
+  :root {
+    --muted: #48484d;
+    --line: #939399;
+  }
+  .dialog {
+    border-color: #939399;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+*::before,
+*::after {
+    scroll-behavior: auto !important;
+  }
+  
+}
+
+@media (pointer: coarse) {
+  .button {
+    min-height: 44px;
+  }
+  
+  
+}
+.interface-recovery {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 18px;
+  padding: 32px;
+  text-align: center;
+}
+.interface-recovery h1 {
+  font-size: 28px;
+}
+.interface-recovery p {
+  color: var(--muted);
+}
+
+input[type='date'],
+input[type='datetime-local'] {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+}
+
+.dialog[open] .dialog-content {
+  animation: nexo-dialog-arrive 230ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes nexo-dialog-arrive {
+  from {
+    transform: translateY(12px) scale(0.99);
+  }
+  to {
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dialog[open] .dialog-content {
+    animation: none;
+  }
+}
+.drive-another {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  margin-top: 12px;
+  text-align: left;
+}
