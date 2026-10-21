@@ -1,19 +1,19 @@
-# Límites y reportes de seguridad
+# Security boundaries and reporting
 
-Nexo está en desarrollo. Esta documentación no declara una auditoría completa, una versión pública con mantenimiento garantizado ni autorización para publicar el repositorio.
+Nexo is in development. These notes do not claim a comprehensive audit, a maintained public release with guaranteed support, or authorization to disclose private material.
 
-## Reportar un problema
+## Report a problem
 
-Usa el reporte privado de vulnerabilidades de GitHub si está habilitado. Si no existe un canal privado, solicita uno con una descripción general, sin adjuntar datos personales, credenciales, listas de asistencia, plantillas institucionales ni detalles que permitan explotar el problema.
+Use GitHub's private vulnerability reporting if it is enabled. If no private channel is available, request one with a high-level description. Do not attach personal information, credentials, attendance lists, institutional templates, or details that would enable exploitation.
 
-## Límites del cliente actual
+## Current client boundaries
 
-- Los datos se guardan localmente; las copias exportadas contienen datos y plantillas y deben tratarse como archivos privados. Su suma SHA-256 detecta cambios, pero no cifra el contenido ni demuestra quién lo creó.
-- Las importaciones validan esquema y relaciones. La restauración conserva el archivo previo y pausa los espacios vinculados a Drive; las revisiones y copias locales no sustituyen una copia independiente.
-- Drive es opcional y supone comunicaciones con Google cuando se configura y utiliza. La implementación solicita el alcance `drive`; deben revisarse alcance, permisos entre cuentas y requisitos de verificación antes de distribuirla.
-- En Mac, los tokens OAuth se guardan en el llavero y no se devuelven al puente JavaScript. No deben copiarse al repositorio, a informes o a artefactos.
-- La firma ad-hoc de desarrollo no es una identidad Developer ID ni una notarización. No desactives Gatekeeper para distribuir o probar la app.
+- Data is stored locally. Exported backups include data and templates and must be treated as private files. Their SHA-256 checksum detects changes but does not encrypt the contents or establish who created them.
+- Imports validate schemas and relationships. Restore preserves the previous file and pauses spaces linked to Drive; local revisions and backups do not replace an independent copy.
+- Drive is optional and communicates with Google when configured and used. The implementation requests the `drive` scope; scope, cross-account permissions, and verification requirements need review before distribution.
+- On Mac, OAuth tokens stay in Keychain and are not returned to the JavaScript bridge. Do not copy them into the repository, reports, or artifacts.
+- Development ad-hoc signing is neither a Developer ID identity nor notarization. Do not disable Gatekeeper to distribute or test the app.
 
-La alfa `Sources/VRR` no tiene la integración Drive del cliente actual. Sus antiguas afirmaciones de funcionamiento sin red no describen Nexo.
+The `Sources/VRR` alpha did not have the current client's Drive integration. Its earlier claims of no network use do not describe Nexo.
 
-Antes de cualquier publicación, revisa [archivos, historial y artefactos](docs/PUBLICATION_REVIEW.md). Cambiar el último archivo o añadir una regla a `.gitignore` no elimina información ya versionada.
+Before publication, review [files, history, and artifacts](docs/PUBLICATION_REVIEW.md). Changing the latest file or adding a `.gitignore` rule does not remove information already committed.

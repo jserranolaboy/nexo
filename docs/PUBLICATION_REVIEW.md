@@ -1,9 +1,9 @@
-# Alcance de esta copia
+# Snapshot scope
 
-Esta copia selecciona el cliente Nexo actual y su núcleo compartido desde `615057e`, sin copiar historial Git. No contiene datos de usuario, capturas, PDFs institucionales, prototipos anteriores, configuración OAuth del propietario, sesiones, perfiles de firma ni paquetes ejecutables.
+This snapshot selects the current Nexo client and shared core from `615057e`, without importing the previous Git history. It excludes user data, screenshots, institutional PDFs, earlier prototypes, the owner's OAuth configuration, sessions, signing profiles, and executable packages.
 
-Se conserva la licencia MIT original y el archivo de avisos de dependencias. Las bibliotecas y SDKs de terceros mantienen sus propios términos; no se cambia su atribución. Los iconos se generan desde el código incluido. No se reutilizan las imágenes de conceptos ni el icono raster de VRR.
+The original MIT license and dependency notices are preserved. Third-party libraries and SDKs retain their own terms and attribution. Icons are generated from the included code. Concept images and the VRR raster icon are not reused.
 
-Drive es opcional para uso local. Sus clientes y la dependencia iOS necesaria se conservan; se excluye configuración privada sin eliminar funciones existentes. Los paquetes web y nativos necesitan las herramientas y dependencias documentadas para compilarse. La app empaquetada no requiere servidor de desarrollo ni un servicio Python.
+Drive is optional for local use. Its clients and the required iOS dependency remain; private configuration is excluded without removing existing features. Web and native packages need the documented tools and dependencies to build. The packaged app does not require a development server or a Python service.
 
-La revisión de patrones del snapshot y sus enlaces no equivale a una auditoría completa de seguridad. La revisión visual nativa, Sequoia real, colaboración entre cuentas y distribución firmada/notarizada siguen pendientes. Consulta [estado de verificación](../README.md#estado-de-verificación).
+Pattern checks of the snapshot and its links do not constitute a comprehensive security audit. Native visual review, execution on Sequoia, cross-account collaboration checks, and signed/notarized distribution remain pending. See [verification status](../README.md#verification-status).

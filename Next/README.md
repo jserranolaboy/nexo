@@ -1,21 +1,21 @@
-# Núcleo y clientes de Nexo
+# Nexo core and clients
 
-El cliente actual es [Nexo en `Experience`](Experience/README.md): React/Motion en WKWebView, AppKit en Mac y UIKit en iPhone/iPad. Consulta el [README principal](../README.md) para requisitos, compilación, pruebas y estado de verificación.
+The current client is [Nexo in `Experience`](Experience/README.md): React/Motion in WKWebView, AppKit on Mac, and UIKit on iPhone/iPad. See the [main README](../README.md) for requirements, build instructions, tests, and verification status.
 
-## Código actual
+## Current code
 
-- `Sources/VRRCore`: modelos, reglas, persistencia local recuperable, PDF e historial causal de Drive.
-- `Tests/VRRCoreTests`: pruebas del núcleo con datos sintéticos.
-- `Experience/src`: interfaz y coordinación con el puente nativo.
-- `Experience/Native`: cliente Mac y `ExperienceKit`, compartido con iOS.
-- `Experience/iOS`: contenedor UIKit y proyecto Xcode.
+- `Sources/VRRCore`: models, rules, recoverable local persistence, PDF, and Drive causal history.
+- `Tests/VRRCoreTests`: core tests with synthetic data.
+- `Experience/src`: interface and coordination with the native bridge.
+- `Experience/Native`: Mac client and `ExperienceKit`, shared with iOS.
+- `Experience/iOS`: UIKit container and Xcode project.
 
-Cada asociación contiene personas, grupos, períodos, componentes, categorías, encuentros, asistencia, voluntariado y plantillas. Los porcentajes son individuales: `presente / (presente + ausente)`. Las personas fuera de una lista no adquieren ausencias; excusadas, pendientes, registros retirados y encuentros cancelados o que no cuentan quedan fuera del denominador.
+Each association contains people, groups, periods, activity components, categories, events, attendance, volunteering, and templates. Percentages are individual: `present / (present + absent)`. People outside a roster do not acquire absences; excused, pending, and removed records, plus cancelled or non-counting events, are excluded from the denominator.
 
-El voluntariado sugiere un orden por menor participación realizada, con selección manual y cupos. Mostrar interés o ser seleccionado no da crédito de participación. Las plantillas afectan al documento, no al resultado de asistencia.
+Volunteering suggests an order based on lower completed participation, with manual selection and capacity limits. Expressing interest or being selected does not earn participation credit. Templates affect the document, not the attendance result.
 
-`SnapshotStore` conserva revisiones y copias antes de reemplazar el archivo principal y compacta las copias locales más antiguas. La colaboración actual usa Google Drive; no necesita el servicio Python conservado aquí. Drive y la persistencia local no sustituyen una copia independiente.
+`SnapshotStore` preserves revisions and copies before replacing the primary file and compacts older local backups. Current collaboration uses Google Drive and does not require the earlier Python service. Neither Drive nor local persistence replaces an independent backup.
 
-## Procedencia
+## Provenance
 
-Los prototipos SwiftUI MacApp, Service y VRR no forman parte de esta copia. El núcleo conserva sus nombres internos para mantener formatos y continuidad de datos. La migración desde la alfa VRR sigue pendiente de validación con copias.
+The SwiftUI MacApp, Service, and VRR prototypes are not part of this snapshot. The core retains its internal names to preserve formats and data continuity. Migration from the VRR alpha still requires validation using copies.

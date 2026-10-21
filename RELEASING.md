@@ -1,25 +1,25 @@
-# Preparar una versión de Nexo
+# Prepare a Nexo release
 
-Nexo actual está en `Next/Experience`. Los ZIP/DMG y el cask de VRR son históricos; no se deben renombrar ni reutilizar como una release de Nexo. Este documento no autoriza publicación, firma de distribución ni cambios de visibilidad.
+The current Nexo client lives in `Next/Experience`. VRR's ZIP/DMG files and cask are historical; do not rename or reuse them as a Nexo release. This document does not authorize publication, distribution signing, or visibility changes.
 
-## Comprobación local
+## Local checks
 
-1. Usa una copia o rama aislada y datos sintéticos. Ejecuta las [pruebas web y nativas](README.md#compilar-y-ejecutar-las-pruebas).
-2. Mantén coherentes las versiones de `Next/Experience/package.json`, `Native/Info.plist`, `iOS/Info.plist` y `iOS/project.yml`. La 0.4.0 (10) tiene compilaciones distintas: registra también el commit y las sumas de los archivos entregados.
-3. Revisa las entradas de `Next/Experience/build-experience.sh`. Por defecto instala en `~/Applications/Nexo.app`, conserva la app anterior, copia el archivo principal existente y verifica que no cambió. Hay que cerrar Nexo primero.
-4. El script acepta `VALENTINA_BUILD_DIR` y `VALENTINA_APP_DIR` para cambiar las salidas. Cambiar solo la ruta de la app no aísla su almacenamiento. Las pruebas de ejecución necesitan un entorno QA separado; no abras dos copias contra los mismos datos.
-5. Revisa `NEXO_GOOGLE_CONFIG`: el constructor puede incorporar `GoogleOAuth.json` desde el Mac. Las credenciales de usuario no forman parte de una entrega. No leas, exportes ni incluyas tokens para preparar el paquete.
-6. Inspecciona versión, recursos web, icono, arquitecturas y firma de la app final. El script usa firma ad-hoc por defecto o la identidad de `NEXO_SIGN_IDENTITY`; no implementa notarización ni crea ZIP/DMG de Nexo.
+1. Use an isolated copy or branch and synthetic data. Run the [web and native tests](README.md#build-and-test).
+2. Keep versions consistent across `Next/Experience/package.json`, `Native/Info.plist`, `iOS/Info.plist`, and `iOS/project.yml`. Different builds report 0.4.0 (10): also record the commit and checksums of the delivered files.
+3. Review the inputs to `Next/Experience/build-experience.sh`. By default, it installs in `~/Applications/Nexo.app`, retains the previous app, copies an existing primary data file, and verifies that it did not change. Close Nexo first.
+4. The script accepts `VALENTINA_BUILD_DIR` and `VALENTINA_APP_DIR` to change its outputs. Changing the app's path alone does not isolate its storage. Runtime tests need a separate QA environment; do not open two copies against the same data.
+5. Review `NEXO_GOOGLE_CONFIG`: the builder can include `GoogleOAuth.json` from the Mac. User credentials are not part of a distribution. Do not read, export, or include tokens when preparing a package.
+6. Inspect the final app's version, web assets, icon, architectures, and signature. The script uses ad-hoc signing by default or the identity in `NEXO_SIGN_IDENTITY`; it does not implement notarization or create Nexo ZIP/DMG files.
 
-## Antes de distribuir
+## Before distribution
 
-- Completa la [revisión de publicación](docs/PUBLICATION_REVIEW.md) y la autorización específica del propietario.
-- Prueba en Sequoia real, WebKit real y los dispositivos que vayas a anunciar. Una compilación universal o un destino mínimo no sustituyen esas pruebas.
-- Verifica actualización, copias, restauración y plantillas con datos sintéticos, además de una migración desde una copia de VRR si se ofrece esa compatibilidad.
-- Revisa Drive con cuentas y permisos autorizados, incluidas desconexión y ediciones concurrentes. Mantén copias independientes.
-- Prepara por separado Developer ID/notarización para Mac o los requisitos de distribución iOS. No declares una entrega firmada o notarizada sin verificar los artefactos finales.
-- Asigna una nueva versión/build y documenta lo comprobado y lo pendiente. Conserva checksums y procedencia del paquete realmente entregado.
+- Complete the [publication review](docs/PUBLICATION_REVIEW.md) and obtain the owner's specific authorization.
+- Test on an actual Sequoia Mac, in real WebKit, and on the devices you intend to advertise. A universal build or minimum deployment target does not replace those checks.
+- Verify updates, backups, restore, and templates with synthetic data, plus migration from a copy of VRR if offering that compatibility.
+- Review Drive with authorized accounts and permissions, including disconnection and concurrent edits. Keep independent backups.
+- Prepare Developer ID/notarization for Mac or the iOS distribution requirements separately. Do not describe a delivery as signed or notarized without verifying the final artifacts.
+- Assign a new version/build and document completed checks and remaining work. Retain checksums and provenance for the package actually delivered.
 
-## Alfa VRR
+## VRR alpha
 
-`AppBundle/Info.plist`, `scripts/build-app.sh`, `Casks/vrr.rb` y las releases `v0.2.0-beta.*` pertenecen a VRR. Sus variables `VRR_SIGNING_IDENTITY` y `VRR_NOTARY_PROFILE` no son las del constructor Nexo. Sus etiquetas, nombres y sumas históricas se conservan.
+`AppBundle/Info.plist`, `scripts/build-app.sh`, `Casks/vrr.rb`, and the `v0.2.0-beta.*` releases belong to VRR. Its `VRR_SIGNING_IDENTITY` and `VRR_NOTARY_PROFILE` variables are not used by the Nexo builder. Historical tags, names, and checksums remain unchanged.

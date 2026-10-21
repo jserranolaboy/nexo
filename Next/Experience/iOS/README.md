@@ -1,32 +1,32 @@
-# Nexo para iPhone y iPad
+# Nexo for iPhone and iPad
 
-Contenedor UIKit para la misma interfaz React de Nexo, con persistencia y PDF nativos. Destino mínimo configurado: iOS/iPadOS 18; fuente 0.4.0 (10). Esto no prueba ejecución en todos los dispositivos ni una entrega por TestFlight.
+UIKit container for the same Nexo React interface, with native persistence and PDF generation. Configured minimum deployment target: iOS/iPadOS 18; source version 0.4.0 (10). This does not prove execution on every device or a TestFlight delivery.
 
-## Preparar y compilar
+## Prepare and build
 
-Desde la raíz, con Xcode, Node, pnpm y XcodeGen disponibles:
+From the repository root, with Xcode, Node, pnpm, and XcodeGen available:
 
 ```sh
 Next/Experience/iOS/prepare.sh
 open Next/Experience/iOS/Nexo.xcodeproj
 ```
 
-`prepare.sh` compila web con dependencias fijadas, copia recursos y genera el icono desde código. Ejecútalo antes de abrir el proyecto de esta copia, que no incluye el PNG generado ni recursos Web compilados. Regenera el proyecto con `--generate-project` solo cuando sea necesario; la actualización habitual conserva los ajustes locales de firma.
+`prepare.sh` builds the web interface with pinned dependencies, copies resources, and generates the icon from code. Run it before opening this snapshot's project, which excludes the generated PNG and compiled Web resources. Regenerate the project with `--generate-project` only when necessary; routine updates preserve local signing settings.
 
-Esta copia no incluye equipo de firma personal ni IDs OAuth. Elige un simulador para desarrollo. Para un dispositivo físico, el propietario configura su equipo y los requisitos de Apple localmente; no se crean credenciales ni se distribuyen perfiles desde este repositorio.
+This snapshot contains neither a personal signing team nor OAuth IDs. Choose a simulator for development. For a physical device, the owner configures their team and Apple's requirements locally; this repository does not create credentials or distribute profiles.
 
-## Usar sin configurar Drive
+## Use without configuring Drive
 
-Espacios, personas, agenda, asistencia, voluntariado, plantillas, PDF y copias son funciones locales del cliente. GoogleSignIn permanece como dependencia porque el código de colaboración la usa, pero no hace falta configurar Google ni iniciar sesión para usar espacios locales. No hay un servidor de la aplicación que desplegar.
+Spaces, people, the agenda, attendance, volunteering, templates, PDFs, and backups are local client features. GoogleSignIn remains a dependency because collaboration code uses it, but configuring Google or signing in is not required for local spaces. There is no application server to deploy.
 
-Para habilitar Drive, configura en tu copia local el cliente OAuth iOS y su URL de retorno conforme a los requisitos de GoogleSignIn. `GIDClientID` y `CFBundleURLTypes` específicos del proyecto de desarrollo se retiraron del `Info.plist` de publicación. No añadas tokens, contraseñas o sesiones al repositorio. La configuración y validación de colaboración entre cuentas son pasos separados de compilar el cliente local.
+To enable Drive, configure the iOS OAuth client and its return URL in your local copy according to GoogleSignIn's requirements. The original development project's `GIDClientID` and `CFBundleURLTypes` were removed from the published `Info.plist`. Do not add tokens, passwords, or sessions to the repository. Cross-account collaboration configuration and validation are separate from building the local client.
 
-## Interacción y almacenamiento
+## Interaction and storage
 
-Tres áreas: Encuentros, Personas y Documentos. En iPhone el encuentro se abre sobre la agenda y se vuelve deslizando hacia la derecha. En asistencia, un toque puede marcar presente; deslizar derecha marca presente e izquierda ausente. La ficha permite excusar, añadir nota y retirar/restaurar registros; cada cambio ofrece Deshacer. El voluntariado se selecciona manualmente.
+Three areas: Events, People, and Documents. On iPhone, an event opens above the agenda; swipe right to return. In attendance, tapping can mark someone present; swipe right for present and left for absent. The profile allows excusing, adding notes, and removing/restoring records; each change offers Undo. Volunteers are selected manually.
 
-En iPad vertical, agenda y encuentro aparecen juntos con pestañas abajo; desde 1100 puntos hay barra lateral. Los detalles se convierten en hojas cuando falta anchura. El editor conserva controles táctiles para columnas, textos, imágenes y PDF.
+On portrait iPad, the agenda and event appear together with bottom tabs; layouts at least 1100 points wide use a sidebar. Details become sheets when there is insufficient width. The editor retains touch controls for columns, text, images, and PDFs.
 
-Los datos se guardan en `Library/Application Support/Nexo/workspace-v1.json` dentro del contenedor. Los borradores se conservan por separado y las copias JSON comparten el formato Nexo de Mac. Consulta [guardado y límites](../README.md#guardado-y-recuperación).
+Data is stored in `Library/Application Support/Nexo/workspace-v1.json` inside the app container. Drafts are stored separately, and JSON backups share the Nexo Mac format. See [storage and limitations](../README.md#storage-and-recovery).
 
-Las suites compartidas se ejecutaron en Mac durante esta tarea. No se recompiló, instaló ni verificó físicamente esta copia iOS; esos pasos siguen pendientes.
+The shared suites ran on Mac during this work. This iOS snapshot was not rebuilt, installed, or physically verified; those checks remain pending.

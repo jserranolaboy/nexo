@@ -1,14 +1,14 @@
-# Integraciones y dependencias
+# Integrations and dependencies
 
-| Componente existente | Necesidad |
+| Existing component | Requirement |
 | --- | --- |
-| Google Drive/OAuth | Opcional al usar la app. Sin configuración o inicio de sesión se usan los espacios y herramientas locales. No se incluye configuración del propietario. |
-| GoogleSignIn-iOS | Dependencia de compilación del proyecto iOS actual; su función es la conexión opcional con Google. No se añadió ni se retiró el SDK. |
-| React, React DOM, Motion y Lucide | Bibliotecas de interfaz incluidas por el constructor, no servicios remotos que haya que contratar o configurar. |
-| Vite, TypeScript y Vitest | Herramientas de desarrollo y pruebas; la app empaquetada no necesita el servidor Vite abierto. |
-| Swift/AppKit/UIKit/WebKit/PDFKit | Componentes nativos de las plataformas Apple para interfaz, almacenamiento y documentos. |
-| Antiguo servicio Python y cliente genérico del núcleo | El servicio no se incluye ni despliega. El núcleo conserva código y pruebas históricos de sincronización, pero el cliente actual no instancia ese servicio para sus flujos locales o Drive. |
+| Google Drive/OAuth | Optional at runtime. Without configuration or sign-in, local spaces and tools remain available. The owner's configuration is not included. |
+| GoogleSignIn-iOS | Build dependency of the current iOS project, supporting the optional Google connection. The SDK was neither added nor removed. |
+| React, React DOM, Motion, and Lucide | Interface libraries included by the builder, not remote services that need a subscription or configuration. |
+| Vite, TypeScript, and Vitest | Development and test tools; the packaged app does not need the Vite server running. |
+| Swift/AppKit/UIKit/WebKit/PDFKit | Native Apple platform components for the interface, storage, and documents. |
+| Earlier Python service and generic core client | The service is neither included nor deployed. The core retains historical synchronization code and tests, but the current client does not instantiate that service for local or Drive workflows. |
 
-Para compilar sin configuración de cuentas, sigue los comandos web/nativos del [README](../README.md). No activan la prueba optativa de Drive real. Para empaquetar Mac sin copiar una configuración local, establece `NEXO_GOOGLE_CONFIG` a una ruta inexistente. El uso local no requiere claves API, Firebase, un backend propio ni servicios adicionales. La instalación de dependencias sí necesita los registros habituales o una caché disponible.
+To build without account configuration, follow the web/native commands in the [README](../README.md). They do not enable the opt-in live Drive test. To package Mac without copying a local configuration, point `NEXO_GOOGLE_CONFIG` to a nonexistent path. Local use requires no API keys, Firebase, custom backend, or additional services. Installing dependencies still needs the usual registries or an available cache.
 
-Los únicos destinos de red específicos de la aplicación encontrados en el código del cliente corresponden a OAuth/Drive de Google y al retorno OAuth local; el proyecto iOS resuelve su SDK desde GitHub. Esta observación de código no es una captura completa de tráfico de todos los SDKs. Conserva y revisa los [avisos de terceros](../Next/Experience/public/ThirdPartyNotices.txt).
+The application-specific network destinations found in client code correspond to Google OAuth/Drive and the local OAuth callback; the iOS project resolves its SDK from GitHub. This code observation is not a complete traffic capture of every SDK. Preserve and review the [third-party notices](../Next/Experience/public/ThirdPartyNotices.txt).

@@ -1,50 +1,50 @@
 # Nexo
 
-**Organiza encuentros, conoce la participación y coordina a tu equipo en un solo espacio.**
+**Plan events, understand participation, and coordinate your team in one workspace.**
 
-Nexo conecta el calendario de tu organización con las personas que participan, sus registros de asistencia, el voluntariado y los documentos de cada actividad. Está pensado para asociaciones, equipos de voluntariado y grupos que necesitan planificar y mantener un historial claro de su trabajo.
+Nexo connects your organization's calendar with its people, attendance records, volunteer assignments, and event documents. It is designed for associations, volunteer teams, and groups that need to plan activities and keep a clear record of their work.
 
-## Del próximo encuentro al registro completo
+## From the next event to a complete record
 
-- **Planifica con contexto.** Reúne fechas, componentes, categorías y participantes en la agenda; edita o duplica encuentros y decide cuáles cuentan para asistencia.
-- **Entiende la participación.** Consulta la ficha de cada persona y sus resultados por período o actividad, con estados e historial que explican el porcentaje.
-- **Coordina el voluntariado.** Revisa sugerencias por participación anterior y elige a quién asignar, respetando los cupos de cada encuentro.
-- **Prepara documentos con tu identidad.** Diseña plantillas desde cero o sobre un PDF y genera listas para firmas o registros de asistencia multipágina.
-- **Elige cómo colaborar.** Trabaja con espacios locales y vincula a Google Drive los que necesites compartir. La colaboración es opcional y conserva alternativas cuando hay conflictos.
+- **Plan with context.** Bring dates, activity components, categories, and participants together in the agenda. Edit or duplicate events and choose which ones count toward attendance.
+- **Understand participation.** Open each person's profile and review results by period or activity, with statuses and history that explain the percentage.
+- **Coordinate volunteers.** Review suggestions based on previous participation and choose assignments within each event's capacity.
+- **Create documents with your own identity.** Design templates from scratch or over an existing PDF, then generate signature sheets or multi-page attendance records.
+- **Choose how to collaborate.** Work with local spaces and connect the ones you want to share through Google Drive. Collaboration is optional and preserves alternatives when changes conflict.
 
-## Un producto abierto, en desarrollo
+## Open source, actively developing
 
-Nexo se distribuye como **código abierto bajo licencia MIT**. La fuente actual es **0.4.0 (10)** y está en [`Next/Experience`](Next/Experience/README.md). La experiencia comparte interfaz entre Mac, iPhone y iPad, con funciones nativas de almacenamiento y documentos.
+Nexo is **open-source software under the MIT license**. The current source version is **0.4.0 (10)**, located in [`Next/Experience`](Next/Experience/README.md). The experience shares an interface across Mac, iPhone, and iPad, with native storage and document features.
 
-Esta entrega es de código fuente: siguen pendientes la revisión visual nativa de la compilación actual, Sequoia real y la preparación de una distribución firmada/notarizada. Los requisitos, pruebas ejecutadas y límites se detallan abajo. VRR fue el prototipo anterior; sus releases y su cask no instalan el Nexo actual y no se incluyen en esta copia.
+This is a source-code release. Native visual review of the current build, execution on an actual Sequoia Mac, and preparation of a signed/notarized distribution remain pending. Requirements, completed checks, and limitations are detailed below. VRR was the earlier prototype; its releases and cask do not install the current Nexo client and are not included in this snapshot.
 
-## Qué puedes hacer
+## What you can do
 
-| Área | Funciones |
+| Area | Features |
 | --- | --- |
-| Encuentros | Agenda, semana y mes; crear, editar, duplicar o cancelar actividades; decidir cuáles cuentan para asistencia. |
-| Personas | Grupos, pertenencias históricas, ficha individual, lista y tabla; resultados por período, componente y categoría. |
-| Asistencia | Formar listas por grupos o personas; pendiente, presente, ausente y excusada; notas, registros retirados/restaurados y Deshacer. En Mac también se puede marcar con el teclado. |
-| Voluntariado | Orden sugerido por menor participación, selección manual, cupos y estados separados de interés, selección y realización. |
-| Documentos | Diseñar desde una hoja en blanco o un PDF; editar columnas, textos e imágenes; conservar borradores y exportar PDF multipágina para firmas o asistencia registrada. |
-| Espacios y datos | Crear y renombrar espacios, enviarlos a Papelera y recuperarlos; exportar copias JSON, validar importaciones y conservar revisiones anteriores. |
-| Colaboración | Vincular un espacio a Drive, abrir uno compartido, pausar o reanudar cambios y resolver versiones en conflicto. |
+| Events | Agenda, week, and month views; create, edit, duplicate, or cancel activities; choose which count toward attendance. |
+| People | Groups, historical memberships, individual profiles, list and table views; results by period, component, and category. |
+| Attendance | Build rosters from groups or individuals; pending, present, absent, and excused statuses; notes, removed/restored records, and Undo. Mac also supports keyboard marking. |
+| Volunteering | Suggestions ordered by lower previous participation, manual selection, capacity limits, and separate interest, selection, and completion states. |
+| Documents | Start with blank paper or a PDF; edit columns, text, and images; retain drafts and export multi-page PDFs for signatures or recorded attendance. |
+| Spaces and data | Create and rename spaces, move them to Trash and restore them; export JSON backups, validate imports, and retain earlier revisions. |
+| Collaboration | Link a space to Drive, open a shared space, pause or resume changes, and resolve conflicting versions. |
 
-La interfaz se organiza en **Encuentros**, **Personas** y **Documentos**, con búsqueda, períodos, inglés/español y aspecto claro, oscuro o del sistema. Comparte la experiencia web entre Mac, iPhone y iPad, con contenedores y funciones nativas por plataforma.
+The interface has three areas: **Events**, **People**, and **Documents**, with search, periods, English/Spanish localization, and light, dark, or system appearance. It shares the web experience across Mac, iPhone, and iPad, with platform-specific native containers and features.
 
-El porcentaje de cada persona es `presente / (presente + ausente)`. Las excusadas y pendientes quedan visibles, pero no entran en el denominador. Tampoco cuentan los encuentros cancelados, los que no cuentan para asistencia ni los registros retirados. Una persona que no está en la lista no adquiere una ausencia por existir el encuentro.
+Each person's attendance rate is `present / (present + absent)`. Excused and pending records remain visible but do not enter the denominator. Cancelled events, events that do not count, and removed roster entries are also excluded. Someone outside an event's roster does not acquire an absence simply because the event exists.
 
-## Requisitos
+## Requirements
 
-- **Mac:** destino mínimo configurado macOS 15; para desarrollo, Xcode completo y un toolchain compatible con Swift 6.1 o posterior.
-- **Web:** Node compatible con Vite 8 (`^20.19.0 || >=22.12.0`) y pnpm **11.19.0**, fijado en `packageManager`. Ejecuta pnpm desde `Next/Experience` para que el gestor lea esa versión.
-- **iPhone/iPad:** destino mínimo configurado iOS/iPadOS 18. La preparación necesita Xcode; XcodeGen solo al generar o regenerar el proyecto. Consulta la [guía iOS](Next/Experience/iOS/README.md).
+- **Mac:** configured minimum deployment target macOS 15; development requires full Xcode and a toolchain compatible with Swift 6.1 or later.
+- **Web:** a Node version supported by Vite 8 (`^20.19.0 || >=22.12.0`) and pnpm **11.19.0**, pinned in `packageManager`. Run pnpm from `Next/Experience` so the package manager reads that version.
+- **iPhone/iPad:** configured minimum deployment target iOS/iPadOS 18. Preparation requires Xcode; XcodeGen is needed when generating or regenerating the project. See the [iOS guide](Next/Experience/iOS/README.md).
 
-La verificación de esta tarea se hizo en un Mac Apple Silicon con macOS 27.0.1, Swift 6.4 y Node 24.21.0. Los destinos mínimos no prueban ejecución en Sequoia ni en todos los dispositivos compatibles.
+Verification for this work used an Apple Silicon Mac with macOS 27.0.1, Swift 6.4, and Node 24.21.0. Deployment targets do not prove execution on Sequoia or every supported device.
 
-## Probar la interfaz web
+## Explore the web interface
 
-Desde la raíz del repositorio:
+From the repository root:
 
 ```sh
 cd Next/Experience
@@ -52,18 +52,18 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Abre `http://127.0.0.1:5188`. La vista de desarrollo usa datos ficticios; no ejecuta el almacenamiento nativo, la generación nativa de PDF ni la conexión real de Drive. La aplicación empaquetada incluye la interfaz y no necesita este servidor.
+Open `http://127.0.0.1:5188`. The development view uses synthetic data; it does not run native persistence, native PDF generation, or a live Drive connection. The packaged application includes its interface and does not need this server.
 
-## Compilar y ejecutar las pruebas
+## Build and test
 
-Pruebas y compilación web, desde `Next/Experience`:
+Web tests and build, from `Next/Experience`:
 
 ```sh
 pnpm test
 pnpm build
 ```
 
-Pruebas nativas, desde la raíz. Los directorios temporales evitan interferencias de atributos de File Provider en el checkout:
+Native tests, from the repository root. Temporary build directories avoid interference from File Provider attributes in the checkout:
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
@@ -74,9 +74,9 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   swift test --package-path Next/Experience/Native --scratch-path /tmp/nexo-native-tests -j 2
 ```
 
-La suite local usa datos sintéticos y un transporte de Drive en memoria. La prueba de Drive real es optativa y requiere una autorización separada para la cuenta y las operaciones remotas; queda desactivada en el comando anterior.
+The local suite uses synthetic data and an in-memory Drive transport. The live Drive test is opt-in and requires separate authorization for the account and remote operations; the command above disables it.
 
-Para compilar el ejecutable Mac universal sin instalar una app:
+To build the universal Mac executable without installing an app:
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
@@ -84,63 +84,63 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   --scratch-path /tmp/nexo-mac-build -c release --arch arm64 --arch x86_64 -j 2
 ```
 
-### Preparar el paquete Mac
+### Prepare the Mac app bundle
 
 ```sh
 zsh Next/Experience/build-experience.sh
 ```
 
-Este script compila web y nativo, crea `Nexo.app` y la instala en `~/Applications/Nexo.app`. Hay que cerrar Nexo antes: conserva la app anterior y, si existe, copia el archivo principal de datos y comprueba que permanece idéntico. Usa firma ad-hoc salvo que se configure expresamente otra identidad; no notariza la app. También puede incluir una configuración OAuth local si existe: revisa entradas y resultado antes de distribuirlo. Consulta [preparación de versiones](RELEASING.md).
+This script builds the web and native code, creates `Nexo.app`, and installs it in `~/Applications/Nexo.app`. Close Nexo first: the script retains the previous app and, when present, copies the primary data file and checks that it remains identical. It uses ad-hoc signing unless another identity is explicitly configured; it does not notarize the app. It can also include an existing local OAuth configuration: review the inputs and output before distribution. See [release preparation](RELEASING.md).
 
-## Almacenamiento y recuperación
+## Storage and recovery
 
-| Plataforma | Archivo principal |
+| Platform | Primary file |
 | --- | --- |
 | Mac | `~/Library/Application Support/Valentina-Experience/workspace-v1.json` |
-| iPhone/iPad | `Library/Application Support/Nexo/workspace-v1.json`, dentro del contenedor de la app |
-| Alfa VRR | `~/Library/Application Support/VRR/vrr-data.json`; es otro formato y otra implementación |
+| iPhone/iPad | `Library/Application Support/Nexo/workspace-v1.json`, inside the app container |
+| VRR alpha | `~/Library/Application Support/VRR/vrr-data.json`; a different format and implementation |
 
-Se conservan los nombres internos `Valentina-Experience` y `VRRCore` para mantener continuidad. No renombres directorios de datos ni copies el JSON de VRR sobre el de Nexo: la migración de la alfa necesita una prueba específica desde una copia.
+The internal names `Valentina-Experience` and `VRRCore` remain to preserve continuity. Do not rename data directories or copy VRR's JSON over Nexo's: migration from the alpha requires a specific test using a copy.
 
-`SnapshotStore` comprueba revisión y relaciones, conserva las revisiones anterior y nueva antes de reemplazar el archivo principal y no abre un espacio vacío sobre datos dañados. Al guardar, compacta `Backups`: retiene las 60 copias más recientes y después una por hora durante dos días, una por día hasta 60 días y una por semana para las más antiguas. El historial causal de Drive todavía no se compacta.
+`SnapshotStore` checks revisions and relationships, preserves both the previous and new revisions before replacing the primary file, and does not create an empty space over damaged data. On save, it compacts `Backups`: it retains the 60 most recent copies, then one per hour for two days, one per day up to 60 days, and one per week for older copies. Drive's causal history is not yet compacted.
 
-Las copias exportadas incluyen espacios, relaciones, asistencia, voluntariado y plantillas guardadas con sus PDF e imágenes. Las nuevas copias añaden una suma SHA-256 para detectar alteraciones; no es cifrado. Los borradores de plantillas se conservan por separado. Importar una copia valida el contenido, conserva el archivo previo y deja Drive en pausa. Mantén además una copia independiente del Mac y de Drive.
+Exported backups include spaces, relationships, attendance, volunteering, and saved templates with their PDFs and images. New backups add a SHA-256 checksum to detect changes; this is not encryption. Template drafts are stored separately. Importing a backup validates its contents, preserves the previous file, and pauses Drive. Keep an independent backup outside both the Mac and Drive.
 
-## Colaboración por Google Drive
+## Google Drive collaboration
 
-La conexión es opcional. Cada espacio se vincula de forma explícita; conectar Google no sube por sí solo todos los espacios locales. El propietario comparte la carpeta en Drive y decide sus permisos; Nexo no envía invitaciones automáticamente.
+Connecting is optional. Each space is linked explicitly; connecting Google does not automatically upload every local space. The owner shares the folder in Drive and controls its permissions; Nexo does not send invitations automatically.
 
-Las ediciones se guardan localmente con su cola pendiente. La sincronización envía cambios y conserva alternativas cuando detecta ediciones concurrentes. Una copia importada mantiene historial, conflictos y cambios pendientes, pero requiere reanudar Drive conscientemente.
+Edits are saved locally with their pending queue. Synchronization sends changes and preserves alternatives when it detects concurrent edits. An imported backup retains history, conflicts, and pending changes, but requires a deliberate action to resume Drive.
 
-En Mac, OAuth usa el navegador externo y PKCE; los tokens se guardan en el llavero y no se entregan a la interfaz. La integración actual solicita el alcance `drive`. La configuración de desarrollo documentada está en modo de prueba; antes de distribuir deben revisarse el acceso entre cuentas, la alternativa Picker/`drive.file` y los requisitos de verificación. [Detalles y límites](Next/Experience/README.md#colaborar-por-google-drive).
+On Mac, OAuth uses an external browser and PKCE; tokens stay in Keychain and are not passed to the interface. The current integration requests the `drive` scope. The documented development configuration is in testing mode; account access, the Picker/`drive.file` alternative, and verification requirements must be reviewed before distribution. [Details and limitations](Next/Experience/README.md#collaborating-through-google-drive).
 
-Drive no sustituye una copia independiente. El propietario puede borrar archivos remotos; un equipo nuevo podría necesitar una copia exportada o recuperar la carpeta. No se promete pérdida cero ni disponibilidad remota continua.
+Drive does not replace an independent backup. The owner can delete remote files; a new device may need an exported backup or a restored folder. Zero data loss and continuous remote availability are not guaranteed.
 
-## Arquitectura
+## Architecture
 
-| Ruta | Responsabilidad |
+| Path | Responsibility |
 | --- | --- |
-| `Next/Experience/src` | React 19, TypeScript y Motion: interfaz, navegación y estado presentado. |
-| `Next/Experience/Native/Sources/ValentinaExperience` | Ventana AppKit, WKWebView, puente y diálogos Mac. |
-| `Next/Experience/Native/Sources/ExperienceKit` | Operaciones locales, copias, borradores y colaboración Drive. |
-| `Next/Sources/VRRCore` | Modelos, reglas de asistencia/voluntariado, persistencia recuperable, PDF e historial causal. |
-| `Next/Experience/iOS` | Contenedor UIKit, integración iOS y proyecto Xcode. |
-| Implementaciones anteriores | Los prototipos VRR, MacApp y Service no se incluyen en esta copia. El cliente actual no necesita un servidor Python. |
+| `Next/Experience/src` | React 19, TypeScript, and Motion: interface, navigation, and presented state. |
+| `Next/Experience/Native/Sources/ValentinaExperience` | AppKit window, WKWebView, bridge, and Mac dialogs. |
+| `Next/Experience/Native/Sources/ExperienceKit` | Local operations, backups, drafts, and Drive collaboration. |
+| `Next/Sources/VRRCore` | Models, attendance/volunteering rules, recoverable persistence, PDF, and causal history. |
+| `Next/Experience/iOS` | UIKit container, iOS integration, and Xcode project. |
+| Earlier implementations | The VRR, MacApp, and Service prototypes are not included in this snapshot. The current client does not require a Python server. |
 
-## Estado de verificación
+## Verification status
 
-Sobre el código `615057e`, el 21 de octubre de 2026 pasaron **34 pruebas del núcleo, 31 nativas y 26 web**; la prueba optativa de Drive real quedó omitida. También se completó una compilación Mac universal con firma local en una copia QA aislada.
+For source `615057e`, **34 core tests, 31 native tests, and 26 web tests** passed on October 21, 2026; the opt-in live Drive test was skipped. A universal Mac build with local signing also completed in an isolated QA copy.
 
-La revisión visual nativa quedó pendiente por fallos del transporte de control del Mac. La app instalada declara 0.4.0 (10), pero sus cinco recursos web coinciden con una compilación del padre de `615057e`; no incluye la última corrección para evitar contenido invisible cuando WebKit aplaza animaciones. El mismo número de versión no identifica una compilación exacta.
+Native visual review remained pending because the Mac control transport failed. The reference installed app reports 0.4.0 (10), but its five web assets match a build of the parent of `615057e`; it lacks the latest fix for invisible content when WebKit defers animations. The same version number does not identify an exact build.
 
-Siguen pendientes la prueba en Sequoia real, la revisión de esta compilación en WebKit y dispositivos físicos, la colaboración entre dos Macs con cuentas distintas, una migración validada desde VRR y la preparación de firma/distribución. La rama conserva registros históricos de otras pruebas; no equivalen a repetirlas sobre esta compilación.
+Execution on an actual Sequoia Mac, review of this build in WebKit and on physical devices, collaboration between two Macs using different accounts, a validated migration from VRR, and distribution signing remain pending. Historical records of other checks do not mean they were repeated against this build.
 
-## Documentación
+## Documentation
 
-- [Guía del cliente actual](Next/Experience/README.md) · [iPhone y iPad](Next/Experience/iOS/README.md)
-- [Contribuir](CONTRIBUTING.md) · [Límites y reportes de seguridad](SECURITY.md)
-- [Preparación de versiones](RELEASING.md) · [Alcance de esta copia](docs/PUBLICATION_REVIEW.md)
-- [Integraciones opcionales y dependencias](docs/INTEGRATIONS.md)
-- [Código bajo licencia MIT](LICENSE) · [Avisos de terceros](Next/Experience/public/ThirdPartyNotices.txt)
+- [Current client guide](Next/Experience/README.md) · [iPhone and iPad](Next/Experience/iOS/README.md)
+- [Contributing](CONTRIBUTING.md) · [Security boundaries and reporting](SECURITY.md)
+- [Release preparation](RELEASING.md) · [Snapshot scope](docs/PUBLICATION_REVIEW.md)
+- [Optional integrations and dependencies](docs/INTEGRATIONS.md)
+- [MIT-licensed code](LICENSE) · [Third-party notices](Next/Experience/public/ThirdPartyNotices.txt)
 
-Esta copia procede del código Nexo `615057e`; la procedencia técnica se conserva en `SOURCE_ORIGIN.txt`. No incluye historial Git, datos de usuario, configuración OAuth privada ni paquetes de la alfa. La disponibilidad de código no equivale a una release instalable ni a notarización.
+This snapshot comes from Nexo source `615057e`; its technical provenance is recorded in `SOURCE_ORIGIN.txt`. It excludes the previous Git history, user data, private OAuth configuration, and alpha packages. Source availability does not constitute an installable release or notarization.
