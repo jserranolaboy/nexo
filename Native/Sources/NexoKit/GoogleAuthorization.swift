@@ -31,40 +31,78 @@ private struct TokenResponse: Decodable {
 public final class GoogleAuthorization {
     private let configURL: URL
     private let service: String
+    private let sessionReader: ((Bool) throws -> Data?)?
+    private let sessionWriter: ((Data?) throws -> Void)?
+    private let tokenExchange: (@MainActor (URLRequest) async throws -> (Data, URLResponse))?
+    private var sessionGeneration = UUID()
     private var client: GoogleDesktopClient?
     private var tokens: GoogleTokens?
     private var signingIn = false
     public private(set) var requiresKeychainAccess = false
+    public private(set) var configurationError: String?
+    public private(set) var sessionError: String?
     public var configured: Bool { client != nil }
     public var signedIn: Bool { tokens != nil }
-    public init(directory: URL, keychainService: String, bundledConfiguration: URL? = nil) throws {
+    public convenience init(directory: URL, keychainService: String, bundledConfiguration: URL? = nil) throws {
+        try self.init(directory: directory, keychainService: keychainService,
+                      bundledConfiguration: bundledConfiguration, sessionReader: nil)
+    }
+    init(directory: URL, keychainService: String, bundledConfiguration: URL? = nil,
+         sessionReader: ((Bool) throws -> Data?)?, sessionWriter: ((Data?) throws -> Void)? = nil,
+         tokenExchange: (@MainActor (URLRequest) async throws -> (Data, URLResponse))? = nil) throws {
         self.configURL = directory.appendingPathComponent("GoogleOAuth.json")
         self.service = keychainService
-        if FileManager.default.fileExists(atPath: configURL.path) { client = try GoogleDesktopClient(data: Data(contentsOf: configURL)) }
-        else if let bundledConfiguration { client = try GoogleDesktopClient(data: Data(contentsOf: bundledConfiguration)) }
+        self.sessionReader = sessionReader
+        self.sessionWriter = sessionWriter
+        self.tokenExchange = tokenExchange
+        do {
+            if FileManager.default.fileExists(atPath: configURL.path) { client = try GoogleDesktopClient(data: Data(contentsOf: configURL)) }
+            else if let bundledConfiguration { client = try GoogleDesktopClient(data: Data(contentsOf: bundledConfiguration)) }
+        } catch { configurationError = error.localizedDescription }
         // An optional cloud connection must never put a password prompt in
         // front of the local workspace during launch (e.g. after an ad hoc build).
-        try restoreStoredSession(allowInteraction: false)
+        if client != nil {
+            do { try restoreStoredSession(allowInteraction: false) }
+            catch { sessionError = error.localizedDescription }
+        }
     }
     public func restoreStoredSession(allowInteraction: Bool = true) throws {
-        if let data = try keychainRead(allowInteraction: allowInteraction) {
+        sessionGeneration = UUID()
+        guard client != nil else { return }
+        let data: Data?
+        if let sessionReader { data = try sessionReader(allowInteraction) }
+        else { data = try keychainRead(allowInteraction: allowInteraction) }
+        if let data {
             let value = try JSONDecoder().decode(GoogleTokens.self, from: data)
-            if value.clientID == client?.client_id { tokens = value }
-        }
+            tokens = value.clientID == client?.client_id ? value : nil
+        } else { tokens = nil }
+        sessionError = nil
     }
     public func importConfiguration(_ data: Data) throws {
         let candidate = try GoogleDesktopClient(data: data)
         guard !signingIn else { throw GoogleDriveError.message(NexoLocale.text("Completa el inicio de sesión que está abierto.")) }
         try FileManager.default.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if configurationError != nil, FileManager.default.fileExists(atPath: configURL.path) {
+            let preserved = configURL.deletingLastPathComponent().appendingPathComponent("GoogleOAuth-recovered-\(UUID()).json")
+            try FileManager.default.copyItem(at: configURL, to: preserved)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: preserved.path)
+        }
         try data.write(to: configURL, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
-        if candidate.client_id != client?.client_id { try disconnect() }
+        sessionGeneration = UUID()
+        // Importing configuration must not delete an existing account session.
+        if candidate.client_id != tokens?.clientID { tokens = nil }
         client = candidate
+        configurationError = nil
+        do { try restoreStoredSession(allowInteraction: false) }
+        catch { sessionError = error.localizedDescription }
     }
     public func signIn() async throws {
         guard let client else { throw GoogleDriveError.configuration }
         guard !signingIn else { throw GoogleDriveError.message(NexoLocale.text("El inicio de sesión ya está abierto.")) }
         signingIn = true; defer { signingIn = false }
+        sessionGeneration = UUID()
+        let generation = sessionGeneration
         let verifier = try Self.random(), state = try Self.random()
         let challenge = Self.base64(Data(SHA256.hash(data: Data(verifier.utf8))))
         let callback = GoogleLoopback(state: state)
@@ -79,23 +117,32 @@ public final class GoogleAuthorization {
         ]
         guard NSWorkspace.shared.open(url.url!) else { throw GoogleDriveError.message(NexoLocale.text("No se pudo abrir Google en el navegador.")) }
         let code = try await callback.code()
+        guard generation == sessionGeneration else { throw GoogleDriveError.signIn }
         let response = try await exchange(["code": code, "code_verifier": verifier, "redirect_uri": redirect.absoluteString, "grant_type": "authorization_code"], client: client)
+        guard generation == sessionGeneration else { throw GoogleDriveError.signIn }
         guard let refresh = response.refresh_token else { throw GoogleDriveError.signIn }
         if let scope = response.scope, !scope.split(separator: " ").contains("https://www.googleapis.com/auth/drive") { throw GoogleDriveError.message(NexoLocale.text("Google no concedió el acceso a Drive.")) }
         let value = GoogleTokens(accessToken: response.access_token, refreshToken: refresh, expiresAt: Date().addingTimeInterval(response.expires_in), clientID: client.client_id)
         try save(value)
     }
     public func accessToken(forceRefresh: Bool = false) async throws -> String {
-        guard let client, let stored = tokens else { throw GoogleDriveError.signIn }
+        guard let client, let stored = tokens, stored.clientID == client.client_id else { throw GoogleDriveError.signIn }
         if !forceRefresh && stored.expiresAt > Date().addingTimeInterval(60) { return stored.accessToken }
+        let generation = sessionGeneration
         let response = try await exchange(["refresh_token": stored.refreshToken, "grant_type": "refresh_token"], client: client)
+        guard generation == sessionGeneration else { throw GoogleDriveError.signIn }
         let value = GoogleTokens(accessToken: response.access_token, refreshToken: response.refresh_token ?? stored.refreshToken, expiresAt: Date().addingTimeInterval(response.expires_in), clientID: client.client_id)
         try save(value); return value.accessToken
     }
     public func disconnect() throws {
-        let result = SecItemDelete(keychainQuery() as CFDictionary)
-        guard result == errSecSuccess || result == errSecItemNotFound else { throw GoogleDriveError.keychain(result) }
+        sessionGeneration = UUID()
+        if let sessionWriter { try sessionWriter(nil) }
+        else {
+            let result = SecItemDelete(keychainQuery() as CFDictionary)
+            guard result == errSecSuccess || result == errSecItemNotFound else { throw GoogleDriveError.keychain(result) }
+        }
         tokens = nil; requiresKeychainAccess = false
+        sessionError = nil
     }
     private func exchange(_ fields: [String: String], client: GoogleDesktopClient) async throws -> TokenResponse {
         var fields = fields; fields["client_id"] = client.client_id; fields["client_secret"] = client.client_secret
@@ -103,19 +150,26 @@ public final class GoogleAuthorization {
         let form = fields.sorted { $0.key < $1.key }.map { $0.key + "=" + $0.value.addingPercentEncoding(withAllowedCharacters: allowed)! }.joined(separator: "&")
         var request = URLRequest(url: URL(string: "https://oauth2.googleapis.com/token")!); request.httpMethod = "POST"
         request.timeoutInterval = 30; request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type"); request.httpBody = Data(form.utf8)
-        let (data, raw) = try await URLSession.shared.data(for: request)
+        let result: (Data, URLResponse)
+        if let tokenExchange { result = try await tokenExchange(request) }
+        else { result = try await URLSession.shared.data(for: request) }
+        let (data, raw) = result
         guard let response = raw as? HTTPURLResponse, response.statusCode == 200 else { throw GoogleDriveError.signIn }
         return try JSONDecoder().decode(TokenResponse.self, from: data)
     }
     private func save(_ value: GoogleTokens) throws {
         let data = try JSONEncoder().encode(value), query = keychainQuery()
-        let result = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if result == errSecItemNotFound {
-            var new = query; new[kSecValueData as String] = data; new[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            let added = SecItemAdd(new as CFDictionary, nil)
-            guard added == errSecSuccess else { throw GoogleDriveError.keychain(added) }
-        } else if result != errSecSuccess { throw GoogleDriveError.keychain(result) }
+        if let sessionWriter { try sessionWriter(data) }
+        else {
+            let result = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+            if result == errSecItemNotFound {
+                var new = query; new[kSecValueData as String] = data; new[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+                let added = SecItemAdd(new as CFDictionary, nil)
+                guard added == errSecSuccess else { throw GoogleDriveError.keychain(added) }
+            } else if result != errSecSuccess { throw GoogleDriveError.keychain(result) }
+        }
         tokens = value; requiresKeychainAccess = false
+        sessionError = nil
     }
     private func keychainQuery() -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "google-drive"]

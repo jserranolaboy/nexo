@@ -14,7 +14,7 @@ __pycache__/
 node_modules
 dist/
 *.tsbuildinfo
-GoogleOAuth.json
+GoogleOAuth*.json
 client_secret*.json
 
 # Private local configuration, data and generated packages

@@ -104,7 +104,13 @@ public final class WorkspaceStore {
             guard let index = next.periods.firstIndex(where: { $0.id == period.id && $0.organizationID == period.organizationID }) else { throw WorkspaceError.invalidInput(NexoLocale.text("No se encontró el período.")) }
             guard period.endsAt > period.startsAt, !period.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw WorkspaceError.invalidInput(NexoLocale.text("Revisa el nombre y las fechas del período.")) }
             next.periods[index] = period
-        case "addEvent": next.events.append(try input.entity(ActivityEvent.self))
+        case "addEvent":
+            let event = try input.entity(ActivityEvent.self)
+            next.events.append(event)
+            let memberIDs = Set(try input.uuids("memberIDs", optional: true))
+            if !memberIDs.isEmpty {
+                try next.createAttendanceList(eventID: event.id, memberIDs: memberIDs)
+            }
         case "updateEvent":
             let event = try input.entity(ActivityEvent.self)
             guard !event.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw WorkspaceError.invalidInput(NexoLocale.text("Escribe el nombre del encuentro.")) }

@@ -209,7 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             google = auth
             let client = GoogleDriveClient(auth: auth); driveClient = client
             if let experience { drive = DriveCoordinator(store: experience.store, transport: client) }
-            driveError = ""
+            driveError = auth.configurationError ?? auth.sessionError ?? ""
         } catch { driveError = error.localizedDescription }
     }
     private func snapshotObject(_ snapshot: WorkspaceSnapshot) throws -> Any {
@@ -228,7 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             }
             return result
         }
-        return ["configured": google?.configured == true, "connected": google?.signedIn == true, "requiresKeychainAccess": google?.requiresKeychainAccess == true, "account": googleAccount, "error": NexoLocale.text(driveError), "spaces": spaces]
+        return ["configured": google?.configured == true, "connected": google?.signedIn == true, "requiresKeychainAccess": google?.requiresKeychainAccess == true, "account": googleAccount, "error": NexoLocale.text(driveError.isEmpty ? google?.sessionError ?? "" : driveError), "spaces": spaces]
     }
     private func handleDrive(_ command: String, body: [String: Any]) async throws -> Any {
         func orgID() throws -> UUID {
