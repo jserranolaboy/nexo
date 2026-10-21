@@ -473,7 +473,9 @@ function RecordSheet({
   const { mutate } = useWorkspace()
   const [note, setNote] = useState(''),
     [base, setBase] = useState(''),
-    [error, setError] = useState('')
+    [error, setError] = useState(''),
+    [saving, setSaving] = useState(false)
+  const finishing = useRef(false)
   useEffect(() => {
     setNote(row?.note ?? '')
     setBase(row?.note ?? '')
@@ -481,19 +483,26 @@ function RecordSheet({
   }, [row?.id])
   const dirty = note !== base
   const name = row ? attendanceName(s, row) : ''
-  const finish = async () => {
-    if (row && dirty) {
-      try {
+  const finish = async (after: () => void | Promise<void> = close) => {
+    if (finishing.current) return
+    finishing.current = true
+    setSaving(true)
+    setError('')
+    try {
+      if (row && dirty) {
         await mutate(
           { kind: 'attendance', eventID: event.id, memberID: row.memberID, status: row.status, note, expectedNote: base, noteOnly: true },
           tr('Nota guardada'),
         )
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e))
-        return
+        setBase(note)
       }
+      await after()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      finishing.current = false
+      setSaving(false)
     }
-    close()
   }
   return (
     <Sheet open={!!row} onClose={() => void finish()} title={name}>
@@ -506,7 +515,7 @@ function RecordSheet({
                   key={m.status}
                   className={`nx-record-mark ${m.status}`}
                   aria-pressed={row.status === m.status}
-                  disabled={event.isCancelled}
+                  disabled={event.isCancelled || saving}
                   onClick={() =>
                     void mutate({ kind: 'attendance', eventID: event.id, memberID: row.memberID, status: m.status, expectedStatus: row.status }).catch(() => {})
                   }
@@ -532,25 +541,32 @@ function RecordSheet({
                 rows={3}
                 maxLength={4000}
                 placeholder={tr('Motivo, aviso, comentario')}
-                disabled={event.isCancelled}
+                disabled={event.isCancelled || saving}
                 onChange={(e) => setNote(e.target.value)}
               />
             </label>
           )}
           {error && <p className="nx-form-error" role="alert">{error}</p>}
           <div className="nx-group">
-            <button className="nx-group-row link" onClick={() => (close(), openMember(row.memberID))}>
+            <button
+              className="nx-group-row link"
+              disabled={saving}
+              onClick={() => void finish(() => { close(); openMember(row.memberID) })}
+            >
               <span>{tr('Historial de {0}', name)}</span>
               <ArrowUpRight size={16} />
             </button>
             <button
               className={`nx-group-row link ${row.isVoided ? '' : 'danger'}`}
-              disabled={event.isCancelled}
+              disabled={event.isCancelled || saving}
               onClick={() =>
-                void mutate(
-                  { kind: 'inclusion', eventID: event.id, memberID: row.memberID, included: row.isVoided },
-                  row.isVoided ? tr('{0} vuelve a la lista', name) : tr('{0} fuera de la lista', name),
-                ).then(close, () => {})
+                void finish(async () => {
+                  await mutate(
+                    { kind: 'inclusion', eventID: event.id, memberID: row.memberID, included: row.isVoided },
+                    row.isVoided ? tr('{0} vuelve a la lista', name) : tr('{0} fuera de la lista', name),
+                  )
+                  close()
+                })
               }
             >
               <span>{row.isVoided ? tr('Devolver a la lista') : tr('Sacar de la lista')}</span>
@@ -559,10 +575,10 @@ function RecordSheet({
           </div>
           {dirty && (
             <div className="nx-form-footer">
-              <button className="nx-button" onClick={() => (setNote(base), close())}>
+              <button className="nx-button" disabled={saving} onClick={() => (setNote(base), close())}>
                 {tr('Descartar')}
               </button>
-              <button className="nx-button primary" onClick={() => void finish()}>
+              <button className="nx-button primary" disabled={saving} onClick={() => void finish()}>
                 {tr('Guardar nota')}
               </button>
             </div>

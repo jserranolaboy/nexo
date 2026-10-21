@@ -11,6 +11,56 @@ import XCTest
 
 @MainActor
 final class AttendancePDFTests: XCTestCase {
+    private func backgroundPDF(pageSizes: [CGSize]) throws -> Data {
+        let data = NSMutableData()
+        let consumer = try XCTUnwrap(CGDataConsumer(data: data))
+        let context = try XCTUnwrap(CGContext(consumer: consumer, mediaBox: nil, nil))
+        for size in pageSizes {
+            var box = CGRect(origin: .zero, size: size)
+            let mediaBox = withUnsafeBytes(of: &box) { Data($0) }
+            context.beginPDFPage([kCGPDFContextMediaBox as String: mediaBox] as CFDictionary)
+            context.endPDFPage()
+        }
+        context.closePDF()
+        return data as Data
+    }
+
+    func testImportSkipsSmallPagesAndChosenPageRenders() throws {
+        let data = try backgroundPDF(pageSizes: [CGSize(width: 250, height: 300),
+                                                 CGSize(width: 612, height: 792)])
+        let document = try XCTUnwrap(PDFDocument(data: data))
+        let index = try XCTUnwrap((0..<document.pageCount).first {
+            AttendancePDF.supportsListPage(document.page(at: $0)!.bounds(for: .mediaBox).size)
+        })
+        XCTAssertEqual(index, 1)
+        let organization = Organization(name: "Synthetic")
+        let event = ActivityEvent(organizationID: organization.id, title: "List", startsAt: .now,
+                                  componentID: UUID())
+        let template = DocumentTemplate(organizationID: organization.id, name: "Imported",
+                                        backgroundPDFData: data, listPageIndex: index)
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent("nexo-page-fit-\(UUID()).pdf")
+        defer { try? FileManager.default.removeItem(at: output) }
+        try AttendancePDF.render(organization: organization, event: event, entries: [],
+                                 template: template, mode: .blank, to: output)
+        XCTAssertEqual(try XCTUnwrap(PDFDocument(url: output)).pageCount, 2)
+    }
+
+    func testLegacySmallTemplateStaysReadableAndPageFitRejectsImpossibleLayouts() throws {
+        let organization = Organization(name: "Synthetic")
+        var snapshot = WorkspaceSnapshot()
+        snapshot.organizations = [organization]
+        snapshot.templates = [DocumentTemplate(organizationID: organization.id, name: "Legacy",
+                                                backgroundPDFData: try backgroundPDF(pageSizes: [CGSize(width: 250, height: 300)]))]
+        try WorkspaceRules.validate(snapshot)
+        XCTAssertFalse(AttendancePDF.supportsListPage(CGSize(width: 250, height: 300)))
+        XCTAssertFalse(AttendancePDF.supportsListPage(CGSize(width: 320, height: 350),
+                                                     minimumRowHeight: 34, tableTopOffset: 220))
+        XCTAssertTrue(AttendancePDF.supportsListPage(CGSize(width: 320, height: 360),
+                                                    minimumRowHeight: 34, tableTopOffset: 190))
+        XCTAssertFalse(AttendancePDF.supportsListPage(CGSize(width: 612, height: 792),
+                                                     minimumRowHeight: .nan))
+    }
+
     func testLongNoteExpandsRowWithoutTruncatingFinalText() throws {
         let organization = Organization(name: "Asociación")
         let event = ActivityEvent(organizationID: organization.id, title: "Actividad",

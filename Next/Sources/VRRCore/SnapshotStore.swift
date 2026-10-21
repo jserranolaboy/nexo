@@ -7,6 +7,7 @@ public enum SnapshotStoreError: Error, Equatable, Sendable {
     case unsupportedSchema
     case corruptPrimary
     case staleRevision
+    case revisionExhausted
     case writeLockUnavailable
 }
 
@@ -57,6 +58,7 @@ public final class SnapshotStore {
     private func saveLocked(_ proposed: WorkspaceSnapshot, expectedRevision: UInt64) throws -> WorkspaceSnapshot {
         let current = try load()
         guard current.revision == expectedRevision else { throw SnapshotStoreError.staleRevision }
+        guard current.revision < UInt64.max else { throw SnapshotStoreError.revisionExhausted }
         var next = proposed
         next.schemaVersion = WorkspaceSnapshot.currentSchemaVersion
         next.revision = current.revision + 1
@@ -105,10 +107,17 @@ public final class SnapshotStore {
         return try fileManager.contentsOfDirectory(at: backupsURL, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "json" }
             .sorted {
-                let left = Int($0.deletingPathExtension().lastPathComponent.split(separator: "-").dropFirst().first ?? "") ?? -1
-                let right = Int($1.deletingPathExtension().lastPathComponent.split(separator: "-").dropFirst().first ?? "") ?? -1
-                return left == right ? $0.lastPathComponent < $1.lastPathComponent : left < right
+                let left = backupRevision(at: $0)
+                let right = backupRevision(at: $1)
+                if left == nil && right != nil { return true }
+                if left != nil && right == nil { return false }
+                return left == right ? $0.lastPathComponent < $1.lastPathComponent : (left ?? 0) < (right ?? 0)
             }
+    }
+
+    private func backupRevision(at url: URL) -> UInt64? {
+        guard url.lastPathComponent.hasPrefix("revision-") else { return nil }
+        return UInt64(url.deletingPathExtension().lastPathComponent.split(separator: "-").dropFirst().first ?? "")
     }
 
     public func inspectBackup(at url: URL) throws -> WorkspaceSnapshot {
@@ -127,12 +136,21 @@ public final class SnapshotStore {
         try withWriteLock { try restoreLocked(at: url) }
     }
     private func restoreLocked(at url: URL) throws -> WorkspaceSnapshot {
-        let recovered = try inspectBackup(at: url)
+        var recovered = try inspectBackup(at: url)
+        // A restore starts a new revision, so pre-restore writers never become current again.
+        let latestBackupRevision = try availableBackups().compactMap { backupRevision(at: $0) }.max() ?? 0
+        let highestRevision = max(recovered.revision, max((try? load())?.revision ?? 0, latestBackupRevision))
+        guard highestRevision < UInt64.max else { throw SnapshotStoreError.revisionExhausted }
+        recovered.revision = highestRevision + 1
+        let data = try encode(recovered)
         if fileManager.fileExists(atPath: primaryURL.path) {
             let quarantine = directory.appendingPathComponent("pre-restore-\(UUID().uuidString).json")
             try fileManager.copyItem(at: primaryURL, to: quarantine)
         }
-        try encode(recovered).write(to: primaryURL, options: .atomic)
+        try fileManager.createDirectory(at: backupsURL, withIntermediateDirectories: true)
+        let backup = backupsURL.appendingPathComponent("revision-\(recovered.revision)-\(UUID().uuidString).json")
+        try data.write(to: backup, options: .atomic)
+        try data.write(to: primaryURL, options: .atomic)
         return recovered
     }
 

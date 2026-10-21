@@ -10,8 +10,8 @@ DerivedData/
 __pycache__/
 .pytest_cache/
 *.pyc
-# Custom experience toolchain
-node_modules/
+# Frontend toolchain
+node_modules
 dist/
 *.tsbuildinfo
 GoogleOAuth.json

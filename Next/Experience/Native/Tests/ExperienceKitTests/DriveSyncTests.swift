@@ -12,6 +12,7 @@ final class MemoryDrive: DriveTransport {
     var canEdit = true
     var unavailableFolders = Set<String>()
     var uploaded = 0
+    var beforeReserveID: (() async -> Void)?
     init(orgID: UUID) { self.orgID = orgID }
     func folder(_ id: String) async throws -> GoogleDriveFile {
         if unavailableFolders.contains(id) { throw GoogleDriveError.http(404) }
@@ -23,7 +24,10 @@ final class MemoryDrive: DriveTransport {
             return GoogleDriveFile(id: id, name: id, mimeType: "application/json", md5Checksum: digest(bytes), size: String(bytes.count), properties: ["nexoBatch": "1", "nexoOrg": orgID.uuidString, "nexoChange": batch.id.uuidString], capabilities: nil, trashed: false)
         }
     }
-    func reserveID() async throws -> String { UUID().uuidString }
+    func reserveID() async throws -> String {
+        await beforeReserveID?()
+        return UUID().uuidString
+    }
     func upload(_ batch: DriveBatch, folder: String, fileID: String) async throws -> DriveReceipt {
         uploaded += 1
         let encoder = ExperienceStore.encoder(); encoder.outputFormatting = [.sortedKeys]

@@ -109,9 +109,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           : await native<Snapshot>('mutate', { action, expectedRevision: latest.current.revision })
         apply(next)
         if (!isDemo.current) {
-          const state = await native<DriveStatus>('driveStatus')
-          driveRef.current = state
-          setDrive(state)
+          try {
+            const state = await native<DriveStatus>('driveStatus')
+            driveRef.current = state
+            setDrive(state)
+          } catch (error) {
+            // The edit is committed; a status read cannot turn it into a failed edit.
+            const state = {
+              ...driveRef.current,
+              error: error instanceof Error ? error.message : String(error),
+            }
+            driveRef.current = state
+            setDrive(state)
+          }
           clearTimeout(syncTimer.current)
           syncTimer.current = setTimeout(() => autoSync.current(), 2000)
         }

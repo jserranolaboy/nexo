@@ -1,5 +1,5 @@
 import { t as tr } from './i18n'
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, animate, motion, useMotionValue, useReducedMotion } from 'motion/react'
@@ -50,6 +50,7 @@ export function Sheet({
   const y = useMotionValue(0)
   const reduce = useReducedMotion()
   const panel = useRef<HTMLDivElement>(null)
+  const closeFromKeyboard = useEffectEvent(onClose)
   useEffect(() => {
     if (!open) return
     const previous = document.activeElement as HTMLElement | null
@@ -57,7 +58,7 @@ export function Sheet({
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !e.defaultPrevented) {
         e.preventDefault()
-        onClose()
+        closeFromKeyboard()
       }
     }
     window.addEventListener('keydown', key)

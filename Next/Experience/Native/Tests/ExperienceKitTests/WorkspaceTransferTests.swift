@@ -6,6 +6,32 @@ import VRRCore
 
 @MainActor
 struct WorkspaceTransferTests {
+    @Test func restoreRechecksSyncAfterConfirmationAndNeverReplacesAnActiveStore() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = ExperienceStoreTests().fixture(), org = fixture.organizations[0].id
+        let disk = SnapshotStore(directory: root); try disk.initialize(fixture)
+        let remote = MemoryDrive(orgID: org), coordinator = DriveCoordinator(store: disk, transport: remote)
+        try coordinator.activate(organizationID: org, folderID: "synthetic-folder")
+        let backup = try disk.load()
+        #expect(!coordinator.syncing) // The initial host check happens before its picker and confirmation.
+        var reserved: CheckedContinuation<Void, Never>?
+        remote.beforeReserveID = { await withCheckedContinuation { reserved = $0 } }
+        let sync = Task { try await coordinator.sync(organizationID: org) }
+        while reserved == nil { await Task.yield() }
+        let before = try Data(contentsOf: disk.primaryURL)
+        #expect(throws: (any Error).self) { try coordinator.restoreWorkspace(backup) }
+        #expect(try Data(contentsOf: disk.primaryURL) == before)
+        reserved?.resume()
+        try await sync.value
+        let restored = try coordinator.restoreWorkspace(backup)
+        #expect(restored.driveReplicas[0].isPaused == true)
+        #expect(restored.driveReplicas[0].outbox.count == 1)
+        try await coordinator.syncAvailable()
+        #expect(remote.uploaded == 1)
+        #expect(try disk.load() == restored)
+    }
+
     func completeFixture() throws -> WorkspaceSnapshot {
         var s = ExperienceStoreTests().fixture()
         let org = s.organizations[0].id, member = s.members[0].id, component = s.components[0].id
@@ -64,6 +90,7 @@ struct WorkspaceTransferTests {
         let previous = try Data(contentsOf: disk.primaryURL)
         let restored = try WorkspaceTransfer.restore(normalized, into: disk)
         var expected = normalized; expected.driveReplicas[0].isPaused = true
+        expected.revision += 1
         #expect(restored == expected)
         #expect(restored.driveReplicas[0].conflicts.count == 1)
         #expect(restored.driveReplicas[0].outbox.count == 2)

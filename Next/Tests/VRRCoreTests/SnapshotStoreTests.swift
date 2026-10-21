@@ -22,7 +22,8 @@ final class SnapshotStoreTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: store.primaryURL), damaged)
 
         let backup = try XCTUnwrap(store.availableBackups().first)
-        _ = try store.restoreBackup(at: backup)
+        let restored = try store.restoreBackup(at: backup)
+        XCTAssertEqual(restored.revision, 2)
         XCTAssertEqual(try store.load().organizations.count, 0)
         XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent(
             try XCTUnwrap(FileManager.default.contentsOfDirectory(atPath: directory.path).first { $0.hasPrefix("pre-restore-") })
@@ -43,8 +44,11 @@ final class SnapshotStoreTests: XCTestCase {
         XCTAssertEqual(try store.inspectBackup(at: latest).organizations.first?.name, "Último cambio")
         try Data("damaged".utf8).write(to: store.primaryURL, options: .atomic)
         let recovered = try store.restoreBackup(at: latest)
-        XCTAssertEqual(recovered, saved)
-        XCTAssertEqual(try store.load(), saved)
+        var expected = saved
+        expected.revision = saved.revision + 1
+        XCTAssertEqual(recovered, expected)
+        XCTAssertEqual(try store.load(), expected)
+        XCTAssertEqual(try store.inspectBackup(at: XCTUnwrap(store.availableBackups().last)), expected)
     }
 
     func testRejectsStaleRevision() throws {
@@ -76,8 +80,10 @@ final class SnapshotStoreTests: XCTestCase {
         let second = try store.save(changed, expectedRevision: 1)
         let restored = try store.restoreBackup(at: externalCopy)
 
-        XCTAssertEqual(restored, first)
-        XCTAssertEqual(try store.load(), first)
+        var expected = first
+        expected.revision = second.revision + 1
+        XCTAssertEqual(restored, expected)
+        XCTAssertEqual(try store.load(), expected)
         let preserved = try FileManager.default.contentsOfDirectory(
             at: store.directory, includingPropertiesForKeys: nil
         ).first { $0.lastPathComponent.hasPrefix("pre-restore-") }
@@ -85,6 +91,62 @@ final class SnapshotStoreTests: XCTestCase {
         if let preserved {
             XCTAssertEqual(try store.inspectBackup(at: preserved), second)
         }
+    }
+
+    func testRestoreInvalidatesPreRestoreWritersAfterFurtherEdits() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SnapshotStore(directory: directory)
+        try store.initialize()
+        var beforeRestore = try store.load()
+        beforeRestore.organizations.append(Organization(name: "Before restore"))
+        let stale = try store.save(beforeRestore, expectedRevision: 0)
+        let originalBackup = try XCTUnwrap(store.availableBackups().first)
+
+        let restored = try store.restoreBackup(at: originalBackup)
+        XCTAssertGreaterThan(restored.revision, stale.revision)
+        var edited = restored
+        edited.organizations.append(Organization(name: "After restore"))
+        let saved = try store.save(edited, expectedRevision: restored.revision)
+
+        XCTAssertThrowsError(try store.save(stale, expectedRevision: stale.revision)) {
+            XCTAssertEqual($0 as? SnapshotStoreError, .staleRevision)
+        }
+        XCTAssertEqual(try store.load(), saved)
+        XCTAssertEqual(try store.inspectBackup(at: XCTUnwrap(store.availableBackups().last)), saved)
+    }
+
+    func testRestoreUsesRetainedRevisionWhenPrimaryIsMissing() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SnapshotStore(directory: directory)
+        try store.initialize()
+        let first = try store.save(store.load(), expectedRevision: 0)
+        let originalBackup = try XCTUnwrap(store.availableBackups().first)
+        try FileManager.default.removeItem(at: store.primaryURL)
+
+        let restored = try store.restoreBackup(at: originalBackup)
+        XCTAssertEqual(restored.revision, first.revision + 1)
+        XCTAssertEqual(try store.load(), restored)
+    }
+
+    func testExhaustedRevisionFailsWithoutReplacingPrimary() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SnapshotStore(directory: directory)
+        var snapshot = WorkspaceSnapshot()
+        snapshot.revision = UInt64.max
+        try store.initialize(snapshot)
+        let original = try Data(contentsOf: store.primaryURL)
+
+        XCTAssertThrowsError(try store.restoreBackup(at: store.primaryURL)) {
+            XCTAssertEqual($0 as? SnapshotStoreError, .revisionExhausted)
+        }
+        XCTAssertThrowsError(try store.save(snapshot, expectedRevision: snapshot.revision)) {
+            XCTAssertEqual($0 as? SnapshotStoreError, .revisionExhausted)
+        }
+        XCTAssertEqual(try Data(contentsOf: store.primaryURL), original)
+        XCTAssertTrue(try store.availableBackups().isEmpty)
     }
 
     func testCompactionKeepsRecentCopiesAndThinsOlderOnes() throws {

@@ -33,6 +33,12 @@ export class TemplateHistory {
   get canRedo() {
     return this.future.length > 0
   }
+  reset(next: Template) {
+    this.past = []
+    this.future = []
+    this.lastEdit = -Infinity
+    return (this.current = next)
+  }
   edit(next: Template, now = performance.now()) {
     if (sameTemplate(next, this.current)) return this.current
     if (now - this.lastEdit > 450 || !this.past.length) {
@@ -71,6 +77,10 @@ export function useTemplateHistory(initial: Template) {
     setDraft: (value: Template | ((previous: Template) => Template)) => {
       const h = history.current!
       publish(h.edit(typeof value === 'function' ? value(h.current) : value))
+    },
+    resetDraft: (value: Template | ((previous: Template) => Template)) => {
+      const h = history.current!
+      publish(h.reset(typeof value === 'function' ? value(h.current) : value))
     },
     undo: () => publish(history.current!.undo()),
     redo: () => publish(history.current!.redo()),

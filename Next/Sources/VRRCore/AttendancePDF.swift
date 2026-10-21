@@ -38,6 +38,17 @@ public enum AttendancePDF {
     private static let mutedInk = paperGray(0.38)
     private static let rule = paperGray(0.78)
 
+    /// Shared by native PDF import and rendering; existing templates remain readable.
+    public static func supportsListPage(
+        _ pageSize: CGSize, minimumRowHeight: Double = 34, tableTopOffset: Double = 122
+    ) -> Bool {
+        pageSize.width.isFinite && pageSize.height.isFinite &&
+            pageSize.width >= 260 && pageSize.height >= 350 &&
+            minimumRowHeight.isFinite && minimumRowHeight > 0 &&
+            tableTopOffset.isFinite && tableTopOffset >= 0 &&
+            pageSize.height - CGFloat(tableTopOffset) - 30 - bottom >= CGFloat(minimumRowHeight)
+    }
+
     /// Entries must already be in their intended display order.
     public static func pageLayout(
         entries: [AttendanceEntry], columns: [TemplateColumn],
@@ -50,8 +61,8 @@ public enum AttendancePDF {
         }
         let tableTop = pageSize.height - CGFloat(tableTopOffset)
         let availableHeight = tableTop - 30 - bottom
-        guard pageSize.width >= 260, pageSize.height >= 350,
-              availableHeight >= CGFloat(minimumRowHeight) else {
+        guard supportsListPage(pageSize, minimumRowHeight: minimumRowHeight,
+                               tableTopOffset: tableTopOffset) else {
             throw AttendancePDFError.invalidColumnLayout
         }
         let widths = columnWidths(columns, pageWidth: pageSize.width)

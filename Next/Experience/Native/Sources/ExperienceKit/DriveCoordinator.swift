@@ -26,6 +26,11 @@ public final class DriveCoordinator {
         try update { snapshot in snapshot.driveReplicas[try index(snapshot, organizationID)].isPaused = paused }
         if paused { errors.removeValue(forKey: organizationID) }
     }
+    @discardableResult
+    public func restoreWorkspace(_ snapshot: WorkspaceSnapshot) throws -> WorkspaceSnapshot {
+        guard !syncing else { throw GoogleDriveError.message(NexoLocale.text("Espera a que termine la sincronización.")) }
+        return try WorkspaceTransfer.restore(snapshot, into: store)
+    }
     /// One inaccessible folder must not prevent other spaces from syncing.
     public func syncAvailable(organizationID: UUID? = nil) async throws {
         let replicas = try store.load().driveReplicas

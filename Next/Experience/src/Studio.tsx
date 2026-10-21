@@ -61,7 +61,7 @@ export function DocumentStudio({
       columnLabels: { ...columnLabels, ...initial.columnLabels },
     }),
   )
-  const { draft, setDraft, undo, redo, canUndo, canRedo } = useTemplateHistory(startingDraft)
+  const { draft, setDraft, resetDraft, undo, redo, canUndo, canRedo } = useTemplateHistory(startingDraft)
   const [saved, setSaved] = useState<Template | null>(() => {
     const existing = s.templates.find((template) => template.id === initial.id)
     return existing
@@ -308,7 +308,7 @@ export function DocumentStudio({
     }
     await mutate({ kind: 'saveTemplate', entity: copy }, tr('Copia guardada'))
     baseTemplate.current = structuredClone(copy)
-    setDraft(copy)
+    resetDraft((current) => ({ ...current, id: copy.id, name: current.name + ' ' + tr('· copia') }))
     setSaved(copy)
   }
   const render = async () => {

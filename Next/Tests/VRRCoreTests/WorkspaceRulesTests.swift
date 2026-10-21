@@ -106,6 +106,27 @@ final class WorkspaceRulesTests: XCTestCase {
         try WorkspaceRules.validate(snapshot)
     }
 
+    func testVolunteerDeactivatedAfterRegistrationCannotBeSelected() throws {
+        let organization = Organization(name: "Synthetic team")
+        let component = ActivityComponent(organizationID: organization.id, name: "Service")
+        let event = ActivityEvent(organizationID: organization.id, title: "Shift", startsAt: .now,
+                                  componentID: component.id, volunteerCapacity: 1)
+        let member = Member(organizationID: organization.id, name: "Synthetic person")
+        var snapshot = WorkspaceSnapshot()
+        snapshot.organizations = [organization]
+        snapshot.components = [component]
+        snapshot.events = [event]
+        snapshot.members = [member]
+        try snapshot.registerVolunteer(eventID: event.id, memberID: member.id)
+        snapshot.members[0].isActive = false
+        let original = snapshot
+        XCTAssertThrowsError(try snapshot.selectVolunteer(eventID: event.id, memberID: member.id)) {
+            XCTAssertEqual($0 as? WorkspaceCommandError, .invalidMember)
+        }
+        XCTAssertEqual(snapshot, original)
+        XCTAssertEqual(snapshot.volunteers.first?.status, .interested)
+    }
+
     func testValidationRejectsDuplicateMemberEventResult() throws {
         let organization = Organization(name: "A")
         let member = Member(organizationID: organization.id, name: "B")

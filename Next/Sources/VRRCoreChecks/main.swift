@@ -91,7 +91,8 @@ require(damagedAfterLoad == damaged, "damaged bytes preserved")
 let backup = try store.availableBackups().first!
 _ = try store.restoreBackup(at: backup)
 let recovered = try store.load()
-require(recovered.revision == 0, "backup restored explicitly")
+require(recovered.revision > saved.revision, "recovery advances beyond previous writers")
+require(recovered.organizations.isEmpty, "backup content restored explicitly")
 
 print("VRRCore checks passed: attendance, volunteer order, workflow, validation, revisions, damage protection, recovery")
 

@@ -148,7 +148,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             let alert = NSAlert(); alert.messageText = NexoLocale.text("Recuperar esta copia"); alert.informativeText = NexoLocale.text("Contiene {0} espacios, {1} personas y {2} encuentros. El contenido actual se reemplazará; conservaremos una copia anterior. Drive quedará en pausa, con su historial y cambios pendientes intactos.", candidate.organizations.count, candidate.members.count, candidate.events.count); alert.addButton(withTitle: NexoLocale.text("Recuperar")); alert.addButton(withTitle: NexoLocale.text("Cancelar"))
             guard await alert.beginSheetModal(for: window) == .alertFirstButtonReturn else { return ["cancelled": true] }
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            _ = try WorkspaceTransfer.restore(candidate, into: store)
+            if let drive { try drive.restoreWorkspace(candidate) }
+            else { try WorkspaceTransfer.restore(candidate, into: store) }
             experience = try ExperienceStore(directory: directory)
             startupError = nil
             setupDrive(isQA: Bundle.main.bundleIdentifier?.hasSuffix(".qa") == true)
@@ -163,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 let bounds = document.page(at: index)!.bounds(for: .mediaBox)
                 pages.append(["width": bounds.width, "height": bounds.height])
             }
-            guard let index = pages.firstIndex(where: { ($0["width"] as? CGFloat ?? 0) >= 240 && ($0["height"] as? CGFloat ?? 0) >= 200 }) else { throw ExperienceError.invalidInput(NexoLocale.text("El PDF no tiene una página donde pueda colocarse la lista.")) }
+            guard let index = pages.firstIndex(where: { AttendancePDF.supportsListPage(CGSize(width: $0["width"] as? CGFloat ?? 0, height: $0["height"] as? CGFloat ?? 0)) }) else { throw ExperienceError.invalidInput(NexoLocale.text("El PDF no tiene una página donde pueda colocarse la lista.")) }
             let token = cache(data)
             return ["data": data.base64EncodedString(), "pages": pages, "listPageIndex": index, "token": token, "image": try thumbnail(document, index: index)]
         case "backgroundPage":

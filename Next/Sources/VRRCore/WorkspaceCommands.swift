@@ -83,6 +83,9 @@ public extension WorkspaceSnapshot {
         guard let index = volunteers.firstIndex(where: { $0.eventID == eventID && $0.memberID == memberID }),
               volunteers[index].status == .interested
         else { throw WorkspaceCommandError.invalidTransition }
+        guard let member = members.first(where: { $0.id == memberID }),
+              member.organizationID == event.organizationID, member.isActive
+        else { throw WorkspaceCommandError.invalidMember }
         let occupied = volunteers.filter { $0.eventID == eventID && ($0.status == .selected || $0.status == .completed) }.count
         guard occupied < capacity else { throw WorkspaceCommandError.capacityReached }
         volunteers[index].status = .selected

@@ -46,8 +46,8 @@ public enum LegacyImporter {
             )
         }
         let events = Dictionary(snapshot.events.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        snapshot.attendance = legacy.attendanceLists.flatMap { list -> [AttendanceEntry] in
-            guard let event = events[list.eventID] else { return [] }
+        snapshot.attendance = try legacy.attendanceLists.flatMap { list -> [AttendanceEntry] in
+            guard let event = events[list.eventID] else { throw WorkspaceValidationError.brokenRelationship }
             return list.records.map { record in
                 AttendanceEntry(
                     id: record.id, eventID: list.eventID, memberID: record.memberID,
