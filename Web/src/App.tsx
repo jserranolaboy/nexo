@@ -79,7 +79,7 @@ export function App() {
     periods.find((p) => p.id === periodID) ||
     periods.find((p) => new Date(p.startsAt) <= now && new Date(p.endsAt) > now) ||
     periods.at(-1)
-  const event = s.events.find((e) => e.id === eventID && e.organizationID === currentOrg)
+  const event = s.events.find((e) => e.id === eventID && e.organizationID === currentOrg && (!componentFilter || e.componentID === componentFilter))
   const member = s.members.find((m) => m.id === memberID && m.organizationID === currentOrg)
 
   // Recover an unsaved template draft once, after the store opens.
@@ -117,13 +117,15 @@ export function App() {
   }, [])
   // On wide screens an event is always in view: pick the relevant one when none is chosen.
   useEffect(() => {
-    if (layout === 'phone' || area !== 'events' || event || !currentOrg) return
+    if (area !== 'events' || !currentOrg) return
+    if (eventID && !event) setEventID(null)
+    if (layout === 'phone' || event) return
     const list = s.events
       .filter((e) => e.organizationID === currentOrg && (!period || (new Date(e.startsAt) >= new Date(period.startsAt) && new Date(e.startsAt) < new Date(period.endsAt))) && (!componentFilter || e.componentID === componentFilter))
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
     const next = firstRelevantEvent(list)
     if (next) setEventID(next.id)
-  }, [layout, area, event, currentOrg, period?.id, componentFilter, s.events, epoch])
+  }, [layout, area, event, eventID, currentOrg, period?.id, componentFilter, s.events, epoch])
 
   const resetSelection = () => {
     setEpoch((n) => n + 1)

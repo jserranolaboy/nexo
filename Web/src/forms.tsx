@@ -1,5 +1,5 @@
 import { t as tr, locale } from './i18n'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Check, Minus, Plus } from 'lucide-react'
 import { id, nextWholeHour } from './domain'
 import type { Activity, ID, Period, Snapshot } from './domain'
@@ -15,8 +15,10 @@ function useSubmit() {
   const { busy } = useWorkspace()
   const [error, setError] = useState(''),
     [saving, setSaving] = useState(false)
+  const submitting = useRef(false)
   const run = async (job: () => Promise<unknown>) => {
-    if (saving || busy) return false
+    if (submitting.current || busy) return false
+    submitting.current = true
     setSaving(true)
     setError('')
     try {
@@ -26,6 +28,7 @@ function useSubmit() {
       setError(e instanceof Error ? e.message : String(e))
       return false
     } finally {
+      submitting.current = false
       setSaving(false)
     }
   }
@@ -65,9 +68,11 @@ function Footer({
 }
 
 /** Inline "new item" chip used inside forms: becomes a small field when tapped. */
-function NewChip({ label, onCreate }: { label: string; onCreate: (name: string) => Promise<void> }) {
+function NewChip({ label, onCreate }: { label: string; onCreate: (name: string) => Promise<boolean> }) {
   const [editing, setEditing] = useState(false),
-    [name, setName] = useState('')
+    [name, setName] = useState(''),
+    [saving, setSaving] = useState(false)
+  const submitting = useRef(false)
   if (!editing)
     return (
       <button type="button" className="nx-chip add" onClick={() => setEditing(true)}>
@@ -76,16 +81,26 @@ function NewChip({ label, onCreate }: { label: string; onCreate: (name: string) 
       </button>
     )
   const save = async () => {
+    if (submitting.current) return
     if (!name.trim()) return setEditing(false)
-    await onCreate(name.trim())
-    setName('')
-    setEditing(false)
+    submitting.current = true
+    setSaving(true)
+    try {
+      if (await onCreate(name.trim())) {
+        setName('')
+        setEditing(false)
+      }
+    } finally {
+      submitting.current = false
+      setSaving(false)
+    }
   }
   return (
     <span className="nx-chip-input">
       <input
         autoFocus
         value={name}
+        readOnly={saving}
         maxLength={200}
         aria-label={label}
         placeholder={label}
@@ -213,14 +228,10 @@ function EventFormBody({
       if (draft.mode === 'edit') {
         await mutate({ kind: 'updateEvent', entity }, tr('Encuentro actualizado'))
       } else {
-        await mutate({ kind: 'addEvent', entity }, tr('Encuentro creado'))
-        if (copyList && sourceRows.length) {
-          const people = sourceRows
-            .map((a) => a.memberID)
-            .filter((m) => s.members.some((x) => x.id === m && x.isActive))
-          if (people.length)
-            await mutate({ kind: 'roster', eventID: entity.id, memberIDs: people })
-        }
+        const people = copyList ? sourceRows
+          .map((a) => a.memberID)
+          .filter((m) => s.members.some((x) => x.id === m && x.organizationID === orgID && x.isActive)) : []
+        await mutate({ kind: 'addEvent', entity, ...(people.length ? { memberIDs: people } : {}) }, tr('Encuentro creado'))
       }
       saved(entity.id)
     })
@@ -228,14 +239,18 @@ function EventFormBody({
   }
   const createComponent = async (name: string) => {
     const newID = id()
-    await run(() => mutate({ kind: 'addComponent', id: newID, organizationID: orgID, name }))
-    setComponentID(newID)
-    setCategoryID('')
+    const ok = await run(() => mutate({ kind: 'addComponent', id: newID, organizationID: orgID, name }))
+    if (ok) {
+      setComponentID(newID)
+      setCategoryID('')
+    }
+    return ok
   }
   const createCategory = async (name: string) => {
     const newID = id()
-    await run(() => mutate({ kind: 'addCategory', id: newID, componentID, name }))
-    setCategoryID(newID)
+    const ok = await run(() => mutate({ kind: 'addCategory', id: newID, componentID, name }))
+    if (ok) setCategoryID(newID)
+    return ok
   }
   return (
     <form className="nx-form" onSubmit={submit}>

@@ -22,6 +22,8 @@ Mac uses external-browser OAuth, PKCE, and Keychain tokens. It requests the `dri
 
 Local edits and their queue are saved in the same revision. Synchronization preserves alternatives when changes conflict. Imported backups retain history and pending changes but pause Drive. Remote availability depends on Google and folder permissions. Drive does not replace an independent backup.
 
+Malformed optional Mac configuration can be replaced through the configuration controls. A deliberate repair preserves its previous bytes in a private `GoogleOAuth-recovered-<UUID>.json` file before replacement. These files and the active configuration are excluded from Git; keep them private. Missing or malformed configuration does not read stored sessions or prevent local workspace use. A session restoration error is reported separately from a successful configuration import.
+
 ## Storage and recovery
 
 Mac retains `~/Library/Application Support/Valentina-Experience/workspace-v1.json`. The core validates relationships and revisions and preserves copies before replacing the primary file. On save, it keeps the 60 most recent copies, then one per hour for two days, one per day up to 60 days, and one per week for older copies. Drive causal history is not compacted.

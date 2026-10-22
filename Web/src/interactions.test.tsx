@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactElement } from 'react'
 import { emptySnapshot, newTemplate } from './domain'
 import { emptyDrive } from './drive'
+import { t as tr } from './i18n'
 
 // Exercise component callbacks and effect lifetimes without a browser or another renderer dependency.
 const test = vi.hoisted(() => {
@@ -89,7 +90,7 @@ const test = vi.hoisted(() => {
   vi.stubGlobal(
     'document',
     Object.assign(new EventTarget(), {
-      documentElement: { classList: { add() {}, remove() {} } },
+      documentElement: { classList: { add() {}, remove() {} }, dataset: {}, style: {} },
       activeElement: null,
       hidden: false,
       querySelector: () => null,
@@ -139,6 +140,8 @@ import { Sheet } from './kit'
 import { EventView } from './EventView'
 import { DocumentStudio } from './Studio'
 import { WorkspaceProvider } from './workspace'
+import { EventForm } from './forms'
+import { App } from './App'
 
 type Element = ReactElement<Record<string, any>>
 function find(tree: unknown, match: (element: Element) => boolean): Element {
@@ -177,6 +180,7 @@ const fixture = () => {
     },
   ]
   s.members = [{ id: 'member', organizationID: 'org', name: 'Ana', isActive: true }]
+  s.components = [{ id: 'component', organizationID: 'org', name: 'Synthetic component' }]
   s.attendance = [
     {
       id: 'row',
@@ -194,6 +198,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   test.bridge.mockReset()
   delete window.nexoDevice
+  window.innerWidth = 1200
 })
 afterEach(() => {
   test.dispose()
@@ -410,4 +415,293 @@ it('saving a copy preserves pending edits and keeps later undo and save on the c
     entity: { id: copy.id },
     expectedTemplate: copy,
   })
+})
+
+function eventForm(
+  s = fixture(),
+  mode: 'edit' | 'duplicate' = 'edit',
+  mutate = vi.fn().mockResolvedValue(s),
+) {
+  const close = vi.fn(),
+    saved = vi.fn(),
+    hooks = new test.Hooks()
+  test.context = { mutate, busy: false }
+  const form = component(
+    EventForm({ s, orgID: 'org', draft: { mode, event: s.events[0] }, close, saved }),
+    'EventFormBody',
+  )
+  const render = () => hooks.render(() => invoke(form))
+  return { render, mutate, close, saved }
+}
+
+describe('Inline event classification creation', () => {
+  it.each(['component', 'category'])(
+    'preserves the name and previous selection after failed %s creation, then retries',
+    async (kind) => {
+      const s = fixture()
+      s.categories = [{ id: 'category', componentID: 'component', name: 'Synthetic category' }]
+      s.events[0].categoryID = 'category'
+      const mutate = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Synthetic creation failed'))
+        .mockImplementationOnce(async (action) => {
+          if (kind === 'component')
+            s.components.push({ id: action.id, organizationID: 'org', name: action.name })
+          else
+            s.categories.push({ id: action.id, componentID: action.componentID, name: action.name })
+          return s
+        })
+      const form = eventForm(s, 'edit', mutate),
+        chipHooks = new test.Hooks()
+      const chip = () =>
+        find(
+          form.render(),
+          (element) =>
+            typeof element.type === 'function' &&
+            element.type.name === 'NewChip' &&
+            element.props.label === tr(kind === 'component' ? 'Otro' : 'Categoría'),
+        )
+      const renderChip = () => chipHooks.render(() => invoke(chip()))
+      renderChip().props.onClick()
+      find(renderChip(), (element) => element.type === 'input').props.onChange({
+        target: { value: 'Retry name' },
+      })
+      const enter = () =>
+        find(renderChip(), (element) => element.type === 'input').props.onKeyDown({
+          key: 'Enter',
+          preventDefault: vi.fn(),
+        })
+      enter()
+      await flush()
+      expect(find(renderChip(), (element) => element.type === 'input').props.value).toBe(
+        'Retry name',
+      )
+      let tree = form.render()
+      for (const name of ['Synthetic component', 'Synthetic category'])
+        expect(
+          find(tree, (element) => element.type === 'button' && element.props.children === name)
+            .props['aria-pressed'],
+        ).toBe(true)
+      expect(component(tree, 'Footer').props.error).toBe('Synthetic creation failed')
+      enter()
+      await flush()
+      tree = form.render()
+      expect(mutate).toHaveBeenCalledTimes(2)
+      expect(mutate.mock.calls[1][0]).toMatchObject({
+        kind: kind === 'component' ? 'addComponent' : 'addCategory',
+        name: 'Retry name',
+      })
+      expect(
+        find(
+          tree,
+          (element) => element.type === 'button' && element.props.children === 'Retry name',
+        ).props['aria-pressed'],
+      ).toBe(true)
+      expect(renderChip().type).toBe('button')
+    },
+  )
+
+  it('does not create twice when Enter is followed by blur during an outstanding request', async () => {
+    let reject!: (error: Error) => void
+    const pending = new Promise<void>((_resolve, fail) => {
+      reject = fail
+    })
+    const form = eventForm(fixture(), 'edit', vi.fn().mockReturnValue(pending)),
+      chipHooks = new test.Hooks()
+    const renderChip = () => chipHooks.render(() => invoke(component(form.render(), 'NewChip')))
+    renderChip().props.onClick()
+    find(renderChip(), (element) => element.type === 'input').props.onChange({
+      target: { value: 'Keep me' },
+    })
+    const input = find(renderChip(), (element) => element.type === 'input')
+    input.props.onKeyDown({ key: 'Enter', preventDefault: vi.fn() })
+    input.props.onBlur()
+    expect(form.mutate).toHaveBeenCalledOnce()
+    expect(find(renderChip(), (element) => element.type === 'input').props.readOnly).toBe(true)
+    reject(new Error('Synthetic failure'))
+    await flush()
+    expect(find(renderChip(), (element) => element.type === 'input').props).toMatchObject({
+      value: 'Keep me',
+      readOnly: false,
+    })
+  })
+})
+
+describe('Atomic event duplication submission', () => {
+  it('sends one event-and-roster action and retries a rejected transaction without a second roster action', async () => {
+    const s = fixture()
+    s.members.push(
+      { id: 'inactive', organizationID: 'org', name: 'Inactive', isActive: false },
+      { id: 'excluded', organizationID: 'org', name: 'Excluded', isActive: true },
+    )
+    s.attendance.push(
+      { ...s.attendance[0], id: 'inactive-row', memberID: 'inactive' },
+      { ...s.attendance[0], id: 'excluded-row', memberID: 'excluded', isVoided: true },
+    )
+    const mutate = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Synthetic roster rejected'))
+      .mockResolvedValue(s)
+    const form = eventForm(s, 'duplicate', mutate)
+    await form.render().props.onSubmit({ preventDefault: vi.fn() })
+    expect(mutate).toHaveBeenCalledOnce()
+    expect(form.close).not.toHaveBeenCalled()
+    expect(form.saved).not.toHaveBeenCalled()
+    expect(mutate.mock.calls[0][0]).toMatchObject({
+      kind: 'addEvent',
+      memberIDs: ['member'],
+      entity: { title: s.events[0].title },
+    })
+    await form.render().props.onSubmit({ preventDefault: vi.fn() })
+    expect(mutate.mock.calls.map(([action]) => action.kind)).toEqual(['addEvent', 'addEvent'])
+    expect(form.saved).toHaveBeenCalledWith(mutate.mock.calls[1][0].entity.id)
+    expect(form.close).toHaveBeenCalledOnce()
+  })
+  it('omits memberIDs when copying the list is turned off', async () => {
+    const form = eventForm(fixture(), 'duplicate')
+    find(
+      form.render(),
+      (element) =>
+        typeof element.type === 'function' &&
+        element.type.name === 'Toggle' &&
+        element.props.label === tr('Copiar la lista'),
+    ).props.onChange(false)
+    await form.render().props.onSubmit({ preventDefault: vi.fn() })
+    expect(form.mutate).toHaveBeenCalledOnce()
+    expect(form.mutate.mock.calls[0][0]).not.toHaveProperty('memberIDs')
+  })
+  it('guards a duplicate submit before React has rerendered the busy state', async () => {
+    let resolve!: () => void
+    const pending = new Promise<void>((done) => {
+      resolve = done
+    })
+    const form = eventForm(fixture(), 'duplicate', vi.fn().mockReturnValue(pending)),
+      tree = form.render()
+    const first = tree.props.onSubmit({ preventDefault: vi.fn() })
+    const second = tree.props.onSubmit({ preventDefault: vi.fn() })
+    expect(form.mutate).toHaveBeenCalledOnce()
+    resolve()
+    await Promise.all([first, second])
+    expect(form.close).toHaveBeenCalledOnce()
+  })
+})
+
+describe.each([
+  ['phone', 600],
+  ['tablet', 900],
+  ['desktop', 1200],
+] as const)('Filtered event selection on %s', (layout, width) => {
+  function app() {
+    window.innerWidth = width
+    const s = fixture(),
+      hooks = new test.Hooks()
+    s.components.push(
+      { id: 'other', organizationID: 'org', name: 'Other' },
+      { id: 'empty', organizationID: 'org', name: 'Empty' },
+    )
+    s.events.push({
+      ...s.events[0],
+      id: 'other-event',
+      componentID: 'other',
+      startsAt: '2026-10-22T12:00:00Z',
+    })
+    test.context = {
+      snapshot: s,
+      initialOrganizationID: 'org',
+      drive: emptyDrive,
+      driveBusy: false,
+      demo: true,
+      loading: false,
+      fault: '',
+      busy: false,
+      notify: vi.fn(),
+      toast: null,
+    }
+    const render = () => hooks.render(() => App())
+    component(render(), 'Agenda').props.select('event')
+    return { render, s }
+  }
+  it('clears unrelated detail, chooses only matching wide-screen events and clears empty filters', () => {
+    const a = app()
+    component(a.render(), 'Agenda').props.setComponentFilter('other')
+    let tree = a.render()
+    if (layout === 'phone') expect(() => component(tree, 'EventView')).toThrow()
+    else expect(component(tree, 'EventView').props.event.id).toBe('other-event')
+    component(tree, 'Agenda').props.setComponentFilter('empty')
+    tree = a.render()
+    expect(component(tree, 'Agenda').props.selectedID).toBeNull()
+    expect(() => component(tree, 'EventView')).toThrow()
+    component(tree, 'Agenda').props.setComponentFilter('')
+    tree = a.render()
+    if (layout === 'phone') expect(() => component(tree, 'EventView')).toThrow()
+    else expect(component(tree, 'Agenda').props.selectedID).not.toBeNull()
+  })
+  it('retains a valid selection and explicit event navigation clears the filter', () => {
+    const a = app()
+    component(a.render(), 'Agenda').props.setComponentFilter('component')
+    let tree = a.render()
+    expect(component(tree, 'EventView').props.event.id).toBe('event')
+    component(tree, 'Agenda').props.setComponentFilter('other')
+    tree = a.render()
+    component(tree, 'SearchSheet').props.openEvent('event')
+    tree = a.render()
+    expect(component(tree, 'Agenda').props.componentFilter).toBe('')
+    expect(component(tree, 'EventView').props.event.id).toBe('event')
+  })
+  it('removes detail if synchronization reclassifies the selected event out of its filter', () => {
+    const a = app()
+    component(a.render(), 'Agenda').props.setComponentFilter('component')
+    a.render()
+    a.s.events = a.s.events.map((event) => ({ ...event, componentID: 'other' }))
+    const tree = a.render()
+    expect(component(tree, 'Agenda').props.selectedID).toBeNull()
+    expect(() => component(tree, 'EventView')).toThrow()
+  })
+})
+
+it('keeps PDF page changes, row-height edits and table-position edits renderable', async () => {
+  window.nexoDevice = 'iPhone'
+  const s = fixture(),
+    template = {
+      ...newTemplate('org'),
+      backgroundPDFData: 'synthetic-pdf',
+      tableTopOffset: 600,
+      rowHeight: 18,
+    },
+    hooks = new test.Hooks(),
+    notify = vi.fn()
+  s.templates = [template]
+  test.context = { mutate: vi.fn(), busy: false, notify, demo: true }
+  test.bridge.mockResolvedValue({
+    image: 'synthetic-image',
+    pages: [
+      { width: 320, height: 350 },
+      { width: 250, height: 350 },
+    ],
+  })
+  const render = () =>
+    component(
+      hooks.render(() => DocumentStudio({ s, orgID: 'org', initial: template, back: vi.fn() })),
+      'MobileStudio',
+    ).props
+  render()
+  await flush()
+  let studio = render()
+  studio.changePage(0)
+  studio = render()
+  expect(studio.draft.tableTopOffset).toBe(219)
+  studio.patch({ rowHeight: 80 })
+  studio = render()
+  expect(studio.draft.tableTopOffset).toBe(173)
+  studio.patch({ tableTopOffset: 600 })
+  studio = render()
+  expect(studio.draft.tableTopOffset).toBe(173)
+  studio.changePage(1)
+  studio = render()
+  expect(studio.draft.listPageIndex).toBe(0)
+  expect(studio.draft.tableTopOffset).toBe(173)
+  expect(notify).toHaveBeenCalledWith(
+    tr('El PDF no tiene una página donde pueda colocarse la lista.'),
+    true,
+  )
 })

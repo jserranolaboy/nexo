@@ -24,7 +24,7 @@ import {
   SlidersHorizontal,
   Maximize,
 } from 'lucide-react'
-import { columnLabels, fitTemplateToPage, id } from './domain'
+import { canFitAttendancePage, columnLabels, fitTemplateToPage, maximumTableOffset, id } from './domain'
 import type { Activity, Attendance, Column, ID, Snapshot, Template } from './domain'
 import { native, nativeAvailable, useWorkspace } from './workspace'
 import { Dialog, Empty, IconButton } from './ui'
@@ -135,7 +135,12 @@ export function DocumentStudio({
     setRenderError('')
   }
   const patch = (values: Partial<Template>) => {
-    setDraft((d) => ({ ...d, ...values }))
+    setDraft((d) => {
+      const next = { ...d, ...values }
+      if (values.rowHeight !== undefined || values.tableTopOffset !== undefined)
+        next.tableTopOffset = Math.max(100, Math.min(next.tableTopOffset ?? 100, maximumTableOffset(page, next.rowHeight)))
+      return next
+    })
     invalidate()
   }
   const dirty = !saved || !sameTemplate(draft, saved)
@@ -183,7 +188,7 @@ export function DocumentStudio({
       if (d.kind === 'table')
         setDraft((t) => ({
           ...t,
-          tableTopOffset: Math.max(100, Math.min(600, page.height - 100, y)),
+          tableTopOffset: Math.max(100, Math.min(maximumTableOffset(page, t.rowHeight), y)),
         }))
       if (d.kind === 'text')
         setDraft((t) => ({
@@ -239,7 +244,12 @@ export function DocumentStudio({
   }
   const changePage = (index: number) => {
     const target = background?.pages[index]
-    if (target) patch({ ...fitTemplateToPage(draft, target), listPageIndex: index })
+    if (!target) return
+    try {
+      patch({ ...fitTemplateToPage(draft, target), listPageIndex: index })
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), true)
+    }
   }
   const importPDF = async () => {
     try {
@@ -599,7 +609,7 @@ export function DocumentStudio({
                       onChange={(e) => changePage(Number(e.target.value))}
                     >
                       {background.pages.map((p, i) => (
-                        <option key={i} value={i} disabled={p.width < 240 || p.height < 200}>
+                        <option key={i} value={i} disabled={!canFitAttendancePage(p, draft.rowHeight)}>
                           {tr('Página')} {i + 1} · {Math.round(p.width)} × {Math.round(p.height)}
                         </option>
                       ))}

@@ -39,3 +39,5 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath /tmp/nexo-ios-build CODE_SIGNING_ALLOWED=NO build
 ```
+
+The phase-2 app and unit-test targets also passed `build-for-testing`. No simulator runtime was installed in the verification environment (`simctl list runtimes` returned an empty list), so no iOS tests or app startup were executed. No runtime was downloaded.

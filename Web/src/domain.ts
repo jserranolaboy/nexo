@@ -300,6 +300,43 @@ export function newTemplate(orgID: ID): Template {
     imageBlocks: [],
   }
 }
+const validIdentifier = (value: unknown): value is ID =>
+  typeof value === 'string' && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value)
+function rosterSelection(value: unknown, optional = false): ID[] {
+  if (optional && value === undefined) return []
+  if (!Array.isArray(value) || value.length > 10000 || value.some((id) => !validIdentifier(id)))
+    throw new Error(tr('La selección no es válida.'))
+  const selected = value.map((id: string) => id.toUpperCase())
+  if (new Set(selected).size !== selected.length)
+    throw new Error(tr('La selección contiene registros repetidos.'))
+  return selected
+}
+function addAttendanceMembers(s: Snapshot, event: Activity, memberIDs: ID[]) {
+  if (event.isCancelled) throw new Error(tr('Este encuentro no está disponible.'))
+  if (!memberIDs.length) throw new Error(tr('La selección no es válida.'))
+  for (const memberID of memberIDs) {
+    if (s.attendance.some((a) => a.eventID === event.id && a.memberID === memberID))
+      throw new Error(tr('Esta persona ya tiene un registro.'))
+    const member = s.members.find(
+      (m) => m.id === memberID && m.organizationID === event.organizationID && m.isActive,
+    )
+    if (!member) throw new Error(tr('La persona no pertenece a este espacio.'))
+    s.attendance.push({
+      id: id(),
+      eventID: event.id,
+      memberID,
+      status: 'pending',
+      isVoided: false,
+      note: '',
+      memberNameSnapshot: member.name,
+      groupIDsSnapshot: s.groups.filter((g) => g.organizationID === event.organizationID && activeMembership(s, memberID, g.id, new Date(event.startsAt))).map((g) => g.id),
+      eventDateSnapshot: event.startsAt,
+      componentIDSnapshot: event.componentID,
+      categoryIDSnapshot: event.categoryID,
+      countsAttendanceSnapshot: event.countsAttendance,
+    })
+  }
+}
 // Used only in the explicitly labelled simulation. Native edits are validated by NexoCore.
 export function simulateAction(snapshot: Snapshot, action: Action): Snapshot {
   const s = structuredClone(snapshot)
@@ -421,9 +458,24 @@ export function simulateAction(snapshot: Snapshot, action: Action): Snapshot {
       s.periods[index] = period
       break
     }
-    case 'addEvent':
-      s.events.push(action.entity as Activity)
+    case 'addEvent': {
+      const next = structuredClone(action.entity as Activity)
+      if (!next || !validIdentifier(next.id) || !validIdentifier(next.organizationID) ||
+          !validIdentifier(next.componentID) || (next.categoryID != null && !validIdentifier(next.categoryID)) ||
+          typeof next.title !== 'string' || !next.title.trim() ||
+          typeof next.startsAt !== 'string' || Number.isNaN(new Date(next.startsAt).getTime()) ||
+          typeof next.countsAttendance !== 'boolean' || typeof next.isCancelled !== 'boolean' ||
+          (next.volunteerCapacity != null && (!Number.isSafeInteger(next.volunteerCapacity) || next.volunteerCapacity < 0)) ||
+          s.events.some((e) => e.id === next.id) ||
+          !s.organizations.some((o) => o.id === next.organizationID) ||
+          !s.components.some((c) => c.id === next.componentID && c.organizationID === next.organizationID) ||
+          (next.categoryID != null && !s.categories.some((c) => c.id === next.categoryID && c.componentID === next.componentID)))
+        throw new Error(tr('Revisa los datos: hay un nombre, fecha o relación que no es válida.'))
+      const selected = rosterSelection(action.memberIDs, true)
+      s.events.push(next)
+      if (selected.length) addAttendanceMembers(s, next, selected)
       break
+    }
     case 'updateEvent': {
       const next = action.entity as Activity,
         index = s.events.findIndex((e) => e.id === next.id)
@@ -464,28 +516,8 @@ export function simulateAction(snapshot: Snapshot, action: Action): Snapshot {
       if (event) event.isCancelled = action.cancelled as boolean
       break
     case 'roster': {
-      if (!event || event.isCancelled) throw new Error(tr('Este encuentro no está disponible.'))
-      for (const personID of action.memberIDs as string[]) {
-        if (s.attendance.some((a) => a.eventID === eventID && a.memberID === personID))
-          throw new Error(tr('Esta persona ya tiene un registro.'))
-        const m = s.members.find(
-          (m) => m.id === personID && m.organizationID === event.organizationID && m.isActive,
-        )
-        if (!m) throw new Error(tr('La persona no pertenece a este espacio.'))
-        s.attendance.push({
-          id: id(),
-          eventID,
-          memberID: personID,
-          status: 'pending',
-          isVoided: false,
-          note: '',
-          memberNameSnapshot: m.name,
-          eventDateSnapshot: event.startsAt,
-          componentIDSnapshot: event.componentID,
-          categoryIDSnapshot: event.categoryID,
-          countsAttendanceSnapshot: event.countsAttendance,
-        })
-      }
+      if (!event) throw new Error(tr('Este encuentro no está disponible.'))
+      addAttendanceMembers(s, event, rosterSelection(action.memberIDs))
       break
     }
     case 'attendance': {
@@ -557,13 +589,24 @@ export function simulateAction(snapshot: Snapshot, action: Action): Snapshot {
   return s
 }
 
+/** Reserve the renderer's 30-point header, 67-point footer and one complete row. */
+export const maximumTableOffset = (page: { height: number }, rowHeight: number) =>
+  Math.min(600, page.height - 30 - 67 - Math.max(34, rowHeight))
+export const canFitAttendancePage = (page: { width: number; height: number }, rowHeight: number) =>
+  Number.isFinite(page.width) && Number.isFinite(page.height) &&
+  Number.isFinite(rowHeight) && rowHeight > 0 && page.width >= 260 && page.height >= 350 &&
+  maximumTableOffset(page, rowHeight) >= 100
+
 /** Keep every element when changing paper size; move it into the new bounds. */
 export function fitTemplateToPage(
   template: Template,
   page: { width: number; height: number },
 ): Partial<Template> {
+  const maximum = maximumTableOffset(page, template.rowHeight)
+  if (!canFitAttendancePage(page, template.rowHeight))
+    throw new Error(tr('El PDF no tiene una página donde pueda colocarse la lista.'))
   return {
-    tableTopOffset: Math.max(100, Math.min(template.tableTopOffset ?? 100, 600, page.height - 100)),
+    tableTopOffset: Math.max(100, Math.min(template.tableTopOffset ?? 100, maximum)),
     textBlocks: template.textBlocks?.map((b) => {
       const width = Math.max(60, Math.min(b.width, page.width)),
         fontSize = Math.min(32, b.fontSize)

@@ -3,6 +3,7 @@ import {
   attendanceResult,
   emptySnapshot,
   fitTemplateToPage,
+  canFitAttendancePage,
   newTemplate,
   id,
   simulateAction,
@@ -203,29 +204,74 @@ it('preserves document elements when switching to a smaller original PDF page', 
   expect(template.textBlocks[0].x).toBe(500)
 })
 
+describe('Attendance PDF page fitting', () => {
+  it.each([18, 30, 34, 80])(
+    'reserves a complete row at height %i on the smallest supported page',
+    (rowHeight) => {
+      const template = { ...newTemplate(orgID), rowHeight, tableTopOffset: 600 },
+        page = { width: 320, height: 350 }
+      const fitted = fitTemplateToPage(template, page)
+      expect(page.height - fitted.tableTopOffset! - 30 - 67).toBeGreaterThanOrEqual(
+        Math.max(rowHeight, 34),
+      )
+      expect(fitted.tableTopOffset).toBeGreaterThanOrEqual(100)
+      expect(template.tableTopOffset).toBe(600)
+      expect(canFitAttendancePage(page, rowHeight)).toBe(true)
+    },
+  )
+  it.each([
+    { width: 250, height: 350 },
+    { width: 320, height: 349 },
+    { width: Infinity, height: 400 },
+    { width: 320, height: NaN },
+  ])('rejects an unsupported page %j instead of silently clipping the table', (page) => {
+    const template = newTemplate(orgID)
+    expect(() => fitTemplateToPage(template, page)).toThrow()
+    expect(canFitAttendancePage(page, template.rowHeight)).toBe(false)
+  })
+})
+
 describe('0.4 editing', () => {
   it('creates a space without inventing a period', () => {
-    const s = simulateAction(emptySnapshot(), { kind: 'createOrganization', id: 'ORG', name: 'Grupo' })
+    const s = simulateAction(emptySnapshot(), {
+      kind: 'createOrganization',
+      id: 'ORG',
+      name: 'Grupo',
+    })
     expect(s.organizations).toHaveLength(1)
     expect(s.periods).toHaveLength(0)
   })
   it('editing an event moves its attendance with it and the toggle changes the result', () => {
     let s = makeDemo()
-    const event = s.events.find((e) => s.attendance.some((a) => a.eventID === e.id && a.status === 'present'))!
+    const event = s.events.find((e) =>
+      s.attendance.some((a) => a.eventID === e.id && a.status === 'present'),
+    )!
     const row = s.attendance.find((a) => a.eventID === event.id && a.status === 'present')!
     const before = attendanceResult(s, row.memberID).present
-    s = simulateAction(s, { kind: 'updateEvent', entity: { ...event, countsAttendance: false, title: 'Movido' } })
+    s = simulateAction(s, {
+      kind: 'updateEvent',
+      entity: { ...event, countsAttendance: false, title: 'Movido' },
+    })
     expect(s.events.find((e) => e.id === event.id)!.title).toBe('Movido')
     expect(s.attendance.find((a) => a.id === row.id)!.countsAttendanceSnapshot).toBe(false)
     expect(attendanceResult(s, row.memberID).present).toBe(before - 1)
-    expect(() => simulateAction(s, { kind: 'updateEvent', entity: { ...event, title: '  ' } })).toThrow()
+    expect(() =>
+      simulateAction(s, { kind: 'updateEvent', entity: { ...event, title: '  ' } }),
+    ).toThrow()
   })
   it('renames keep identity', () => {
     const s = makeDemo(),
       c = s.components[0]
-    const next = simulateAction(s, { kind: 'rename', entity: 'component', id: c.id, name: 'Nuevo nombre' })
+    const next = simulateAction(s, {
+      kind: 'rename',
+      entity: 'component',
+      id: c.id,
+      name: 'Nuevo nombre',
+    })
     expect(next.components[0]).toMatchObject({ id: c.id, name: 'Nuevo nombre' })
-    expect(() => simulateAction(s, { kind: 'rename', entity: 'group', id: 'X', name: 'a' })).toThrow()
+    expect(() =>
+      simulateAction(s, { kind: 'rename', entity: 'group', id: 'X', name: 'a' }),
+    ).toThrow()
   })
   it('suggests volunteers even when the space has no periods', () => {
     const s = makeDemo()

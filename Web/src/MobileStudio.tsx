@@ -24,7 +24,7 @@ import {
   Upload,
 } from 'lucide-react'
 import type { Activity, Attendance, Column, Template } from './domain'
-import { columnLabels, fitTemplateToPage } from './domain'
+import { canFitAttendancePage, columnLabels, fitTemplateToPage, maximumTableOffset } from './domain'
 import { Dialog, IconButton } from './ui'
 import { t as tr } from './i18n'
 import { usePaperZoom } from './usePaperZoom'
@@ -366,7 +366,7 @@ export function MobileStudio(p: Props) {
                       onChange={(e) => p.changePage(Number(e.target.value))}
                     >
                       {p.background.pages.map((page, i) => (
-                        <option key={i} value={i} disabled={page.width < 240 || page.height < 200}>
+                        <option key={i} value={i} disabled={!canFitAttendancePage(page, d.rowHeight)}>
                           {tr('Página {0}', i + 1)}
                         </option>
                       ))}
@@ -595,7 +595,7 @@ export function MobileStudio(p: Props) {
                   label={tr('Posición de la lista')}
                   value={d.tableTopOffset ?? 100}
                   min={100}
-                  max={Math.min(600, p.page.height - 100)}
+                  max={Math.max(100, maximumTableOffset(p.page, d.rowHeight))}
                   onChange={(tableTopOffset) => p.patch({ tableTopOffset })}
                 />
                 <Range

@@ -2,7 +2,7 @@
 
 Version 0.4.1 (11) is development work, not a stable application distribution. The separate [0.4.0 source preview](https://github.com/jserranolaboy/nexo/releases/tag/v0.4.0-preview.1) remains fixed at `8356404` and contains none of this consolidation.
 
-## Implemented in this phase
+## Implemented across both phases
 
 - One responsibility-based source layout: `Core`, `Native`, `Web`, `iOS`, and `scripts`. Swift modules are `NexoCore` and `NexoKit`; the Mac executable is `Nexo`. Existing persistent identifiers are documented in the [compatibility contract](ARCHITECTURE.md).
 - Recovery allocates a new revision above imported/current/retained revisions, so a pre-restore writer cannot overwrite a new post-restore edit. Prior bytes and restored content are preserved independently; revision overflow fails safely.
@@ -15,6 +15,15 @@ Version 0.4.1 (11) is development work, not a stable application distribution. T
 - Saving a template copy resets Undo/Redo at the new document boundary while retaining edits made during the save.
 - Mac packaging excludes OAuth configuration by default and only includes an explicitly supplied configuration file. Existing build output variables remain aliases; no dependency or external service was added.
 
+## Follow-up reliability fixes
+
+- Event duplication and its copied roster now use one native command, revision, and Drive change batch. Invalid roster input leaves primary bytes and pending history unchanged; a retry creates only one event. The browser simulation applies the same atomic behavior.
+- Failed inline component/category creation preserves the entered name and current selection. Enter/blur and form-submit guards prevent duplicate requests before React rerenders.
+- Component filtering immediately hides unrelated event detail. Phone navigation clears the selection; wider layouts choose a matching event or clear detail when the filter has no results.
+- PDF page fitting, page choices, table dragging, mobile position controls, and row-height edits reserve the renderer's header, footer, and one complete minimum row. Unsupported/nonfinite geometry is rejected; existing small templates remain readable for repair.
+- Malformed optional Mac Google configuration no longer disables its own repair controls or reads a session at startup. Deliberate repair preserves the malformed file privately before replacing it. Import does not delete a stored session.
+- In-flight token responses cannot save or return credentials after an explicit configuration/session change, including a client round trip. Routine concurrent refreshes remain supported. A valid configuration import reports success even if later session restoration fails; the separate status error explains that failure.
+
 ## Checks after consolidation
 
 Checks use synthetic fixtures, temporary build directories, and fake Drive transport. They do not access live accounts or real workspaces.
@@ -22,23 +31,23 @@ Checks use synthetic fixtures, temporary build directories, and fake Drive trans
 | Check | Result |
 | --- | --- |
 | Core XCTest suite | 42 passed; `NexoCoreChecks` executable also passed. |
-| Native Swift Testing suite | 31 executed successfully; 1 opt-in live Drive test skipped (32 reported). |
-| Web Vitest suite | 36 passed across 6 files. |
+| Native Swift Testing suite | 42 executed successfully; 1 opt-in live Drive test skipped (43 reported). The auth suite has 7 tests covering 9 cases. |
+| Web Vitest suite | 79 passed across 7 files. |
 | TypeScript and production web build | Passed; existing main-chunk size warning remains. |
 | Universal Mac app package | Built as 0.4.1 (11), arm64 and x86_64, ad-hoc signature verified, no bundled OAuth configuration. Mach-O minimum target is macOS 15. |
 | iOS generated project | Regenerated with XcodeGen using the new package and test paths. |
-| iOS simulator compilation | Generic simulator `build` and unit-target `build-for-testing` passed with `CODE_SIGNING_ALLOWED=NO`; tests were not executed on iOS. |
+| iOS simulator compilation | Phase-2 app and unit-target `build-for-testing` passed with `CODE_SIGNING_ALLOWED=NO`; tests were not executed on iOS. No simulator runtime is installed. |
 
-The ten new web interaction regressions exercise production callbacks/effect lifetimes with a small test harness using existing dependencies. Nine fail against the original baseline. They are not DOM, accessibility, or visual integration tests.
+The web regressions exercise production callbacks/effect lifetimes with a small test harness using existing dependencies, plus pure domain fixtures. Against the consolidated phase-1 commit `2a20b41`, the current 79-test suite produces 37 failures and 42 passes; all 79 pass with these fixes. The earlier regressions remain green. These are not DOM, accessibility, or visual integration tests.
+
+An independent review of immutable `2a20b41` repeated 42 core tests, 31 native tests (plus one live test skipped), the core executable checks, and localization checks. It found no new recovery or module-layout regression. Phase-2 review also checked atomic history staging and added a Drive-linked regression.
+
+A separate ad-hoc Mac QA bundle with an empty synthetic HOME was prepared. Its opening attempt failed in the control transport before a screen could be observed. After reconnection, neither a QA process nor its isolated primary data file existed. Mac startup/visual QA therefore remains unverified; no binary was attached to the source prerelease.
 
 ## Remaining findings and next work
 
 | Priority | Finding | Why it remains |
 | --- | --- | --- |
-| P2 | Duplicating an event and roster uses two commits; roster failure can leave an event that a retry duplicates again. | Needs an atomic command or explicitly resumable creation state, with failed-second-step regression. |
-| P2 | Failed inline component/category creation selects an uncreated ID and clears the entered name. | Needs form-result and retry regressions across the inline chip and parent form. |
-| P2 | Component filtering can retain a selected event from another component. | Needs consistent selection rules across phone, tablet, and desktop navigation. |
-| P2 | Malformed optional Google configuration blocks its own repair controls on Mac. | Must enable replacement without discarding configuration or sessions; test with synthetic configuration and injected session access. |
 | P2 | Store date encoding truncates fractional seconds and can change volunteer tie order. | Requires coordinated store/transfer/Drive codecs and older-client compatibility tests; no on-disk date format change was made here. |
 | P2 | Whole-snapshot validation accepts an already over-capacity volunteer roster. | Must define repair behavior for existing snapshots before tightening load validation and potentially stranding old data. Command selection still enforces capacity. |
 

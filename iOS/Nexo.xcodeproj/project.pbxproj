@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		03BC4AFD4907ED3CD10D1898 /* IOSDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF111A299DC2580D0B9EA38B /* IOSDraftStore.swift */; };
+		177751412D3101930BEE4123 /* EventCreationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 351089871A51C0584DD227A4 /* EventCreationTests.swift */; };
 		1BD5F13DA13B07122228E71E /* WorkspaceStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 188F4708ADF388933BAF1346 /* WorkspaceStoreTests.swift */; };
 		1E1A14CF5F8664D355E68356 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97192699A4B0F8F3BD748901 /* AppDelegate.swift */; };
 		273744C269A3E5B6F56F4287 /* NexoCore in Frameworks */ = {isa = PBXBuildFile; productRef = FC9872BF2B26735E50CD987B /* NexoCore */; };
@@ -17,6 +18,7 @@
 		35F87D8D438D079375A6E49F /* NexoViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CB9DACEABCA013DF05EFC02 /* NexoViewController.swift */; };
 		3AACC7E0DAB4DE1AFC844E3E /* SyncPlanningTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4FC2A2F786651096E328D41 /* SyncPlanningTests.swift */; };
 		3E9A284311FA4432FCBFF635 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 24601F4C64AA342433D04609 /* PrivacyInfo.xcprivacy */; };
+		492E5E863B739E600781CEB2 /* GoogleAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEB7556CE64A9B9D6299A026 /* GoogleAuthorizationTests.swift */; };
 		5D46226488444EE1C295AF0A /* SnapshotStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A7EF1D15C6CA9596F70B2C /* SnapshotStoreTests.swift */; };
 		60B89186F5056014D3B995FD /* IOSPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C682E87BAD7ABA98F6549D4F /* IOSPersistenceTests.swift */; };
 		7AAB6C992ADE0F4E55CD2749 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2F5B1F876F9389E983D2E2D6 /* Assets.xcassets */; };
@@ -64,6 +66,7 @@
 		24601F4C64AA342433D04609 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		2CB9DACEABCA013DF05EFC02 /* NexoViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexoViewController.swift; sourceTree = "<group>"; };
 		2F5B1F876F9389E983D2E2D6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		351089871A51C0584DD227A4 /* EventCreationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventCreationTests.swift; sourceTree = "<group>"; };
 		7DA7F69FEE5ADD74878D086D /* NexoLocaleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexoLocaleTests.swift; sourceTree = "<group>"; };
 		860BEF00AAE9BF08531848CE /* InteractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractionTests.swift; sourceTree = "<group>"; };
 		8A845F8BDAA77E1B35446BC6 /* EventFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventFocusTests.swift; sourceTree = "<group>"; };
@@ -77,6 +80,7 @@
 		C4FC2A2F786651096E328D41 /* SyncPlanningTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPlanningTests.swift; sourceTree = "<group>"; };
 		C682E87BAD7ABA98F6549D4F /* IOSPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSPersistenceTests.swift; sourceTree = "<group>"; };
 		CE417B27714711C5128EE0A3 /* DriveSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriveSyncTests.swift; sourceTree = "<group>"; };
+		CEB7556CE64A9B9D6299A026 /* GoogleAuthorizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleAuthorizationTests.swift; sourceTree = "<group>"; };
 		E1A7EF1D15C6CA9596F70B2C /* SnapshotStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotStoreTests.swift; sourceTree = "<group>"; };
 		F09CA7175AC4D3AC22C5890D /* Native */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Native; path = ../Native; sourceTree = SOURCE_ROOT; };
 		F19DB9610E1C39564BBFDEE3 /* Core */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Core; path = ../Core; sourceTree = SOURCE_ROOT; };
@@ -151,6 +155,8 @@
 			isa = PBXGroup;
 			children = (
 				CE417B27714711C5128EE0A3 /* DriveSyncTests.swift */,
+				351089871A51C0584DD227A4 /* EventCreationTests.swift */,
+				CEB7556CE64A9B9D6299A026 /* GoogleAuthorizationTests.swift */,
 				7DA7F69FEE5ADD74878D086D /* NexoLocaleTests.swift */,
 				01831167A57EFB8D0D1F7E96 /* SpaceLifecycleTests.swift */,
 				188F4708ADF388933BAF1346 /* WorkspaceStoreTests.swift */,
@@ -355,7 +361,9 @@
 			files = (
 				9A002FA942830449650DF0D7 /* AttendancePDFTests.swift in Sources */,
 				9665F883B492DC20AB03D12C /* DriveSyncTests.swift in Sources */,
+				177751412D3101930BEE4123 /* EventCreationTests.swift in Sources */,
 				2D8F38AC818A23C587A81245 /* EventFocusTests.swift in Sources */,
+				492E5E863B739E600781CEB2 /* GoogleAuthorizationTests.swift in Sources */,
 				60B89186F5056014D3B995FD /* IOSPersistenceTests.swift in Sources */,
 				87BE8793F852AAAFC72059CF /* LegacyImporterTests.swift in Sources */,
 				C397D8E85539DF7B1FC9758B /* NexoLocaleTests.swift in Sources */,
