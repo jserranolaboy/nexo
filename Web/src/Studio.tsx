@@ -1,6 +1,6 @@
 import { t as tr } from './i18n'
 import { persistTemplateDraft } from './drafts'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { MobileStudio, useCompactStudio } from './MobileStudio'
 import { sameTemplate, useTemplateHistory } from './templateHistory'
 import {
@@ -24,7 +24,10 @@ import {
   SlidersHorizontal,
   Maximize,
 } from 'lucide-react'
-import { canFitAttendancePage, columnLabels, fitTemplateToPage, maximumTableOffset, id } from './domain'
+import {
+  canFitAttendancePage, columnLabels, fitTemplateToPage, maximumTableOffset,
+  imageWidthBounds, resizeImageBlock, id,
+} from './domain'
 import type { Activity, Attendance, Column, ID, Snapshot, Template } from './domain'
 import { native, nativeAvailable, useWorkspace } from './workspace'
 import { Dialog, Empty, IconButton } from './ui'
@@ -113,9 +116,10 @@ export function DocumentStudio({
     observer.observe(element)
     return () => observer.disconnect()
   }, [page.width])
-  const actualEntries = chosenEvent
-    ? s.attendance.filter((a) => a.eventID === chosenEvent.id && !a.isVoided)
-    : []
+  const actualEntries = useMemo(
+    () => chosenEvent ? s.attendance.filter((a) => a.eventID === chosenEvent.id && !a.isVoided) : [],
+    [chosenEvent, s.attendance],
+  )
   const entries: Attendance[] = chosenEvent
     ? actualEntries
     : Array.from({ length: 8 }, (_, i) => ({
@@ -134,6 +138,22 @@ export function DocumentStudio({
     setRendering(false)
     setRenderError('')
   }
+  // A sync that started before the editor opened may still replace these inputs.
+  // Compare content, not snapshot identity: unrelated edits must not discard a valid PDF.
+  const previewSource = useMemo(
+    () => {
+      // Bridge responses may enumerate unchanged object fields in a different order.
+      const fields = (record: object | undefined) => record &&
+        Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)))
+      return JSON.stringify({
+        organization: fields(organization), event: fields(chosenEvent), entries: actualEntries.map(fields),
+      })
+    },
+    [organization, chosenEvent, actualEntries],
+  )
+  useLayoutEffect(() => {
+    invalidate()
+  }, [previewSource])
   const patch = (values: Partial<Template>) => {
     setDraft((d) => {
       const next = { ...d, ...values }
@@ -385,6 +405,7 @@ export function DocumentStudio({
   }
   const selectedText = draft.textBlocks?.find((b) => b.id === selected),
     selectedImage = draft.imageBlocks?.find((b) => b.id === selected)
+  const imageBounds = selectedImage ? imageWidthBounds(selectedImage, page) : null
   const removeBlock = () => {
     patch({
       textBlocks: draft.textBlocks?.filter((b) => b.id !== selected),
@@ -676,19 +697,16 @@ export function DocumentStudio({
                   {tr('Ancho de imagen')}
                   <input
                     type="range"
-                    min={30}
-                    max={Math.min(400, page.width - selectedImage.x)}
+                    min={imageBounds?.min ?? selectedImage.width}
+                    max={imageBounds?.max ?? selectedImage.width}
+                    disabled={!imageBounds}
                     value={selectedImage.width}
                     onChange={(e) => {
                       const width = Number(e.target.value)
                       patch({
                         imageBlocks: draft.imageBlocks?.map((b) =>
                           b.id === selected
-                            ? {
-                                ...b,
-                                width,
-                                height: Math.min(page.height - b.y, (b.height / b.width) * width),
-                              }
+                            ? resizeImageBlock(b, width, page)
                             : b,
                         ),
                       })

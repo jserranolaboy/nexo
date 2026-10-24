@@ -24,7 +24,10 @@ import {
   Upload,
 } from 'lucide-react'
 import type { Activity, Attendance, Column, Template } from './domain'
-import { canFitAttendancePage, columnLabels, fitTemplateToPage, maximumTableOffset } from './domain'
+import {
+  canFitAttendancePage, columnLabels, fitTemplateToPage, maximumTableOffset,
+  imageWidthBounds, resizeImageBlock,
+} from './domain'
 import { Dialog, IconButton } from './ui'
 import { t as tr } from './i18n'
 import { usePaperZoom } from './usePaperZoom'
@@ -88,6 +91,7 @@ export function MobileStudio(p: Props) {
   const d = p.draft
   const text = d.textBlocks?.find((b) => b.id === element)
   const image = d.imageBlocks?.find((b) => b.id === element)
+  const imageBounds = image ? imageWidthBounds(image, p.page) : null
   const remove = () => {
     p.patch({
       textBlocks: d.textBlocks?.filter((b) => b.id !== element),
@@ -540,9 +544,11 @@ export function MobileStudio(p: Props) {
                     <Range
                       label={tr('Ancho')}
                       value={text.width}
-                      min={20}
-                      max={p.page.width - text.x}
-                      onChange={(width) => updateText({ width })}
+                      min={60}
+                      max={Math.min(2000, p.page.width - text.x)}
+                      onChange={(width) =>
+                        updateText({ width: Math.max(60, Math.min(2000, p.page.width - text.x, width)) })
+                      }
                     />
                     <Position
                       x={text.x}
@@ -562,17 +568,9 @@ export function MobileStudio(p: Props) {
                     <Range
                       label={tr('Ancho de imagen')}
                       value={image.width}
-                      min={20}
-                      max={p.page.width - image.x}
-                      onChange={(width) =>
-                        updateImage({
-                          width,
-                          height: Math.min(
-                            p.page.height - image.y,
-                            (image.height / image.width) * width,
-                          ),
-                        })
-                      }
+                      min={imageBounds?.min ?? image.width}
+                      max={imageBounds?.max ?? image.width}
+                      onChange={(width) => updateImage(resizeImageBlock(image, width, p.page))}
                     />
                     <Position
                       x={image.x}

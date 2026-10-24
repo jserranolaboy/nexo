@@ -127,6 +127,10 @@ vi.mock('react', async (original) => ({
   useSyncExternalStore: (_subscribe: unknown, snapshot: () => unknown) => snapshot(),
 }))
 vi.mock('react-dom', () => ({ createPortal: (children: unknown) => children }))
+// Geometry tests drive mobile controls, not browser-dependent pinch/scroll behavior.
+vi.mock('./usePaperZoom', () => ({
+  usePaperZoom: () => ({ scroll: { current: null }, width: 0, zoom: 1, reset: vi.fn() }),
+}))
 vi.mock('motion/react', () => ({
   AnimatePresence: 'presence',
   motion: new Proxy({}, { get: (_target, name) => String(name) }),
@@ -793,4 +797,142 @@ describe('Managed classification creation', () => {
       expect(find(render(), (element) => element.type === 'input').props.value).toBe('')
     },
   )
+})
+
+
+describe('PDF preview input coherence', () => {
+  function studioFixture() {
+    window.nexoDevice = 'iPhone'
+    let s = fixture()
+    s.attendance[0].memberNameSnapshot = 'Ana'
+    const template = newTemplate('org'), hooks = new test.Hooks()
+    s.templates = [template]
+    test.context = { mutate: vi.fn(), notify: vi.fn(), demo: true, busy: false }
+    const render = () => component(hooks.render(() => DocumentStudio({
+      s, orgID: 'org', initial: template, eventID: 'event', back: vi.fn(),
+    })), 'MobileStudio').props
+    const update = (change: (value: typeof s) => typeof s) => { s = change(s) }
+    return { render, update }
+  }
+  const final = { token: 'old-pdf', image: 'old-image', pageCount: 2 }
+
+  it.each(['after-render', 'during-render'])(
+    'invalidates a PDF when attendance changes %s without losing template edits',
+    async (timing) => {
+      const r = studioFixture()
+      let complete!: (value: unknown) => void
+      test.bridge.mockImplementation(({ command }) => command === 'renderPDF'
+        ? new Promise((resolve) => { complete = resolve }) : Promise.resolve({ saved: true }))
+      r.render().patch({ headerTitle: 'Unsaved design' })
+      const request = r.render().render()
+      expect(test.bridge.mock.calls.find(([p]) => p.command === 'renderPDF')![0].entries[0].status).toBe('present')
+      if (timing === 'after-render') { complete(final); await request }
+      r.update((s) => ({ ...s, revision: s.revision + 1, attendance: [{ ...s.attendance[0], status: 'absent' }] }))
+      expect(r.render().entries[0].status).toBe('absent')
+      if (timing === 'during-render') { complete(final); await request }
+      const studio = r.render()
+      expect(studio.final).toBeNull()
+      expect(studio.rendering).toBe(false)
+      expect(studio.draft.headerTitle).toBe('Unsaved design')
+      expect(studio.dirty).toBe(true)
+      await studio.exportPDF()
+      expect(test.bridge.mock.calls.some(([p]) => p.command === 'exportPDF')).toBe(false)
+    },
+  )
+
+  it.each(['note', 'name', 'removed', 'event', 'organization'])(
+    'invalidates completed output after a relevant %s change', async (change) => {
+      const r = studioFixture()
+      test.bridge.mockResolvedValue(final)
+      await r.render().render()
+      expect(r.render().final).toEqual(final)
+      r.update((s) => ({ ...s, revision: s.revision + 1,
+        attendance: change === 'note' ? [{ ...s.attendance[0], note: 'Updated note' }]
+          : change === 'name' ? [{ ...s.attendance[0], memberNameSnapshot: 'Updated name' }]
+          : change === 'removed' ? [{ ...s.attendance[0], isVoided: true }] : s.attendance,
+        events: change === 'event' ? [{ ...s.events[0], title: 'Updated title' }] : s.events,
+        organizations: change === 'organization' ? [{ ...s.organizations[0], name: 'Updated organization' }] : s.organizations,
+      }))
+      expect(r.render().final).toBeNull()
+    },
+  )
+
+  it('does not discard an up-to-date PDF after an unrelated snapshot update', async () => {
+    const r = studioFixture()
+    test.bridge.mockResolvedValue(final)
+    await r.render().render()
+    const reorderKeys = <T extends object>(record: T) => Object.fromEntries(Object.entries(record).reverse()) as T
+    r.update((s) => ({ ...structuredClone(s), revision: s.revision + 1,
+      organizations: s.organizations.map(reorderKeys),
+      events: s.events.map(reorderKeys),
+      attendance: [...s.attendance.map(reorderKeys), { ...s.attendance[0], id: 'unrelated', eventID: 'another-event' }],
+    }))
+    expect(r.render().final).toEqual(final)
+  })
+
+  it('does not let a stale page request restore a PDF invalidated by incoming data', async () => {
+    const r = studioFixture()
+    let complete!: (value: unknown) => void
+    test.bridge.mockImplementation(({ command }) => command === 'renderPDF'
+      ? Promise.resolve(final) : new Promise((resolve) => { complete = resolve }))
+    await r.render().render()
+    const pageRequest = r.render().finalPage(1)
+    r.update((s) => ({ ...s, attendance: [{ ...s.attendance[0], status: 'absent' }] }))
+    r.render()
+    complete({ image: 'stale-page' })
+    await pageRequest
+    expect(r.render().final).toBeNull()
+    expect(r.render().rendering).toBe(false)
+  })
+})
+
+
+describe('Template element sizing controls', () => {
+  function editor(mobile: boolean) {
+    if (mobile) window.nexoDevice = 'iPhone'
+    const s = fixture(), template = newTemplate('org')
+    template.imageBlocks = [{ id: 'image', imageData: 'synthetic-png', x: 46, y: 46, width: 160, height: 20 }]
+    template.textBlocks = [{ id: 'text', text: 'Synthetic heading', x: 46, y: 46, width: 220, fontSize: 14 }]
+    s.templates = [template]
+    const mutate = vi.fn().mockResolvedValue(s), hooks = new test.Hooks(), mobileHooks = new test.Hooks()
+    test.context = { mutate, notify: vi.fn(), demo: true, busy: false }
+    const render = () => hooks.render(() => DocumentStudio({ s, orgID: 'org', initial: template, back: vi.fn() }))
+    const mobileElement = () => component(render(), 'MobileStudio')
+    const renderMobile = () => mobileHooks.render(() => invoke(mobileElement()))
+    const save = async () => {
+      if (mobile) await mobileElement().props.save()
+      else {
+        find(render(), (element) => element.type === 'button' && element.props.className === 'button compact').props.onClick()
+        await flush()
+      }
+      return mutate.mock.calls.at(-1)![0].entity
+    }
+    return { render, renderMobile, save }
+  }
+
+  it.each([false, true])('image resizing preserves a savable aspect ratio (mobile=%s)', async (mobile) => {
+    const r = editor(mobile)
+    if (mobile) {
+      component(r.renderMobile(), 'MobilePaper').props.onEdit('image', 'elements')
+      find(r.renderMobile(), (element) => typeof element.type === 'function' && element.type.name === 'Range' && element.props.label === tr('Ancho de imagen')).props.onChange(20)
+    } else {
+      find(r.render(), (element) => String(element.props.className).startsWith('paper-image-block')).props.onClick({ stopPropagation: vi.fn() })
+      const label = find(r.render(), (element) => element.type === 'label' && Array.isArray(element.props.children) && element.props.children[0] === tr('Ancho de imagen'))
+      find(label, (element) => element.type === 'input').props.onChange({ target: { value: '30' } })
+    }
+    const image = (await r.save()).imageBlocks[0]
+    expect(image.height).toBeGreaterThanOrEqual(20)
+    expect(image.width).toBeGreaterThanOrEqual(20)
+    expect(image.width / image.height).toBeCloseTo(8)
+  })
+
+  it('mobile text width respects the native 60-point minimum', async () => {
+    const r = editor(true)
+    component(r.renderMobile(), 'MobilePaper').props.onEdit('text', 'elements')
+    const width = find(r.renderMobile(), (element) => typeof element.type === 'function' && element.type.name === 'Range' && element.props.label === tr('Ancho'))
+    width.props.onChange(20)
+    const text = (await r.save()).textBlocks[0]
+    expect(text.width).toBeGreaterThanOrEqual(60)
+    expect(width.props.min).toBe(60)
+  })
 })

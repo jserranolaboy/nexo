@@ -3,6 +3,8 @@ import {
   attendanceResult,
   emptySnapshot,
   fitTemplateToPage,
+  imageWidthBounds,
+  resizeImageBlock,
   canFitAttendancePage,
   newTemplate,
   id,
@@ -281,5 +283,43 @@ describe('0.4 editing', () => {
   it('rounds new events to the next whole hour', () => {
     const d = nextWholeHour(new Date(2026, 9, 14, 17, 39))
     expect([d.getHours(), d.getMinutes()]).toEqual([18, 0])
+  })
+})
+
+
+describe('Native-compatible image resizing', () => {
+  const cases = [
+    { width: 160, height: 20, x: 46, y: 46, page: { width: 612, height: 792 } },
+    { width: 20, height: 160, x: 46, y: 46, page: { width: 320, height: 350 } },
+    { width: 2000, height: 20, x: 0, y: 0, page: { width: 2200, height: 2200 } },
+    { width: 20, height: 2000, x: 0, y: 0, page: { width: 2200, height: 2200 } },
+    { width: 100, height: 100, x: 280, y: 310, page: { width: 400, height: 450 } },
+  ]
+  it.each(cases)('keeps the aspect ratio, native limits, and page bounds for %j', ({ page, ...geometry }) => {
+    const image = { id: 'image', imageData: 'synthetic-png', ...geometry }, original = { ...image }
+    const bounds = imageWidthBounds(image, page)!
+    expect(bounds.min).toBeLessThanOrEqual(bounds.max)
+    for (const requestedWidth of [-1, 20, 50, 400, 100000]) {
+      const resized = resizeImageBlock(image, requestedWidth, page)
+      expect(resized.width).toBeGreaterThanOrEqual(20)
+      expect(resized.height).toBeGreaterThanOrEqual(20)
+      expect(resized.width).toBeLessThanOrEqual(2000)
+      expect(resized.height).toBeLessThanOrEqual(2000)
+      expect(resized.x + resized.width).toBeLessThanOrEqual(page.width)
+      expect(resized.y + resized.height).toBeLessThanOrEqual(page.height)
+      expect(resized.width / resized.height).toBeCloseTo(image.width / image.height)
+      expect(resized).toMatchObject({ id: image.id, imageData: image.imageData, x: image.x, y: image.y })
+    }
+    expect(image).toEqual(original)
+  })
+  it.each([NaN, Infinity, -Infinity])('ignores a nonfinite requested width %s', (width) => {
+    const image = { id: 'image', imageData: 'synthetic-png', x: 46, y: 46, width: 160, height: 20 }
+    expect(resizeImageBlock(image, width, { width: 612, height: 792 })).toBe(image)
+  })
+  it('keeps existing geometry when a not-yet-loaded page cannot fit it', () => {
+    const image = { id: 'image', imageData: 'synthetic-png', x: 600, y: 46, width: 160, height: 20 }
+    expect(imageWidthBounds(image, { width: 612, height: 792 })).toBeNull()
+    expect(resizeImageBlock(image, 200, { width: 612, height: 792 })).toBe(image)
+    expect(imageWidthBounds(image, { width: Infinity, height: 792 })).toBeNull()
   })
 })

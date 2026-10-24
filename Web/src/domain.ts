@@ -597,6 +597,34 @@ export const canFitAttendancePage = (page: { width: number; height: number }, ro
   Number.isFinite(rowHeight) && rowHeight > 0 && page.width >= 260 && page.height >= 350 &&
   maximumTableOffset(page, rowHeight) >= 100
 
+/** Width limits preserve aspect ratio and the native 20...2000-point image bounds. */
+export function imageWidthBounds(image: ImageBlock, page: { width: number; height: number }) {
+  if (
+    ![image.width, image.height, image.x, image.y, page.width, page.height].every(Number.isFinite) ||
+    image.width <= 0 || image.height <= 0 || image.x < 0 || image.y < 0
+  ) return null
+  const ratio = image.height / image.width,
+    min = Math.max(20, 20 / ratio),
+    max = Math.min(2000, page.width - image.x, Math.min(2000, page.height - image.y) / ratio)
+  return min <= max ? { min, max } : null
+}
+
+export function resizeImageBlock(
+  image: ImageBlock,
+  requestedWidth: number,
+  page: { width: number; height: number },
+): ImageBlock {
+  const bounds = imageWidthBounds(image, page)
+  // A background page may still be loading; do not invent invalid geometry meanwhile.
+  if (!bounds || !Number.isFinite(requestedWidth)) return image
+  const width = Math.max(bounds.min, Math.min(bounds.max, requestedWidth))
+  return {
+    ...image,
+    width,
+    height: Math.max(20, Math.min(2000, page.height - image.y, (image.height / image.width) * width)),
+  }
+}
+
 /** Keep every element when changing paper size; move it into the new bounds. */
 export function fitTemplateToPage(
   template: Template,

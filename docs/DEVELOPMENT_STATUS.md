@@ -44,6 +44,18 @@ An independent review of immutable `2a20b41` repeated 42 core tests, 31 native t
 
 A separate ad-hoc Mac QA bundle with an empty synthetic HOME was prepared. Its opening attempt failed in the control transport before a screen could be observed. After reconnection, neither a QA process nor its isolated primary data file existed. Mac startup/visual QA therefore remains unverified; no binary was attached to the source prerelease.
 
+## Cloud reliability follow-up — October 24, 2026
+
+The cloud checkout began at `085f8ec`. This work changes only the shared web interface, its tests, and this status; native persistence, serialized identifiers, dependencies, installer scripts, and release versions are unchanged.
+
+- Management forms guard repeated component/category/group submissions synchronously. Inline renaming does not submit twice through Enter/blur, and Escape cannot commit a canceled edit through a trailing blur. Failed edits retain their names for retry; pending requests are not presented as canceled.
+- A PDF preview is invalidated when its organization, event, or included attendance changes, including a Drive synchronization that was already in flight before the editor opened. Older render and page responses cannot restore stale output. Unrelated snapshot changes retain a valid PDF, and invalidation preserves unsaved template edits.
+- Desktop/mobile image sizing shares aspect-ratio-preserving limits for both dimensions and page bounds. Mobile text widths respect the native 60-point minimum. These controls no longer create the reproduced undersized-element save failures; native validation is unchanged.
+
+Validation on Linux with Node 24.22.1 and the pinned pnpm 11.19.0: **106 web tests pass**, TypeScript and the production build pass, and localization and whitespace checks pass. The initial 79-test baseline was green. Seventeen added interaction regressions failed before their corresponding fixes; the other new cases cover unchanged-input behavior and geometry boundaries. Existing main-chunk size warnings remain. Callback tests are not DOM, visual, accessibility, or native-renderer integration tests.
+
+Swift, Xcode, and Apple UI runtimes are unavailable in this cloud environment. The historical Core/Native/macOS/iOS results above were not repeated here. No installed app, user workspace, Drive account, prerelease, or stable release was modified. The later installer staging/backup/rollback work remains uncommitted on the offline Mac and has **not** been recovered into this checkout; reconcile it separately before installer integration. Native export/PDF, final package, actual Sequoia and physical-device verification remain pending.
+
 ## Remaining findings and next work
 
 | Priority | Finding | Why it remains |
