@@ -1,23 +1,28 @@
 import { describeCollaboration, resolvePausedAlternative, runCollaborationJourney } from './collaboration-journey.ts'
 import { describeJourney, runFirstJourney } from './journey.ts'
+import { migrateLegacyFile, revertToPreviousCopy } from './migrate.ts'
 import { describeVolunteers, runVolunteerJourney } from './volunteer-journey.ts'
 
 const messages = {
   es: {
     usage:
-      'Uso: journey | volunteers | show | volunteers-show | collaborate | collaborate-show --directory DIR [--lang es|en] | collaborate-choose --directory DIR --version ID [--lang es|en]',
+      'Uso: journey | volunteers | show | volunteers-show | collaborate | collaborate-show --directory DIR [--lang es|en] | collaborate-choose --directory DIR --version ID [--lang es|en] | migrate --directory DIR --source workspace-v1.json [--lang es|en] | migrate-revert --directory DIR [--lang es|en]',
     saved: 'Espacio sintético guardado. La asistencia queda en el archivo local.',
     volunteers: 'Voluntariado sintético guardado. La selección quedó en el archivo local.',
     kept: 'Guardado local conservado. El puerto de sincronización falló después.',
     chosen: 'Alternativa elegida. La otra queda fuera del archivo activo.',
+    migrated: 'Migración comprobada. Personas, encuentros y asistencias quedaron en el archivo nuevo.',
+    reverted: 'Copia nueva anterior restaurada.',
   },
   en: {
     usage:
-      'Usage: journey | volunteers | show | volunteers-show | collaborate | collaborate-show --directory DIR [--lang es|en] | collaborate-choose --directory DIR --version ID [--lang es|en]',
+      'Usage: journey | volunteers | show | volunteers-show | collaborate | collaborate-show --directory DIR [--lang es|en] | collaborate-choose --directory DIR --version ID [--lang es|en] | migrate --directory DIR --source workspace-v1.json [--lang es|en] | migrate-revert --directory DIR [--lang es|en]',
     saved: 'Synthetic space saved. Attendance remains in the local file.',
     volunteers: 'Synthetic volunteering saved. The selection remains in the local file.',
     kept: 'Local save kept. The sync port failed afterwards.',
     chosen: 'Alternative chosen. The other is out of the active file.',
+    migrated: 'Migration checked. People, encounters, and attendance are in the new file.',
+    reverted: 'Previous new copy restored.',
   },
 } as const
 
@@ -49,20 +54,41 @@ if (!parsed.command || !parsed.directory) {
     const value = resolvePausedAlternative(parsed.directory, parsed.version)
     process.stdout.write(`${copy.chosen} ${value}\n`)
   }
+} else if (parsed.command === 'migrate') {
+  if (!parsed.source) {
+    process.stderr.write(`${copy.usage}\n`)
+    process.exitCode = 1
+  } else {
+    const workspace = migrateLegacyFile(parsed.directory, parsed.source)
+    process.stdout.write(
+      `${copy.migrated} ${workspace.people.length} ${workspace.encounters.length} ${workspace.attendance.length}\n`,
+    )
+  }
+} else if (parsed.command === 'migrate-revert') {
+  revertToPreviousCopy(parsed.directory)
+  process.stdout.write(`${copy.reverted}\n`)
 } else {
   process.stderr.write(`${copy.usage}\n`)
   process.exitCode = 1
 }
 
-function parse(argv: string[]): { command: string; directory: string; lang: 'es' | 'en'; version: string } {
+function parse(argv: string[]): {
+  command: string
+  directory: string
+  lang: 'es' | 'en'
+  version: string
+  source: string
+} {
   let directory = ''
   let version = ''
+  let source = ''
   let lang: 'es' | 'en' = 'es'
   const command = argv[0] ?? ''
   for (let index = 1; index < argv.length; index += 1) {
     const token = argv[index]
     if (token === '--directory') directory = argv[(index += 1)] ?? ''
     else if (token === '--version') version = argv[(index += 1)] ?? ''
+    else if (token === '--source') source = argv[(index += 1)] ?? ''
     else if (token === '--lang') {
       const value = argv[(index += 1)]
       if (value !== 'es' && value !== 'en') throw new Error('unsupported language')
@@ -71,5 +97,5 @@ function parse(argv: string[]): { command: string; directory: string; lang: 'es'
       throw new Error(`unknown argument ${token}`)
     }
   }
-  return { command, directory, lang, version }
+  return { command, directory, lang, version, source }
 }
