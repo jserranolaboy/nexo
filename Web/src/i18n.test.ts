@@ -40,3 +40,9 @@ it('translates the space-removal pending state without changing Spanish', () => 
   expect(translate('Eliminando…', 'en')).toBe('Deleting…')
   expect(translate('Eliminando…', 'es')).toBe('Eliminando…')
 })
+
+it('explains how to retry an image import while PDF dimensions are unavailable', () => {
+  const message = 'Espera a que se cargue el PDF y vuelve a importar la imagen.'
+  expect(translate(message, 'en')).toBe('Wait for the PDF to load, then import the image again.')
+  expect(translate(message, 'es')).toBe(message)
+})

@@ -36,6 +36,23 @@ interface Background {
   image: string
   pages: { width: number; height: number }[]
 }
+type Page = Background['pages'][number]
+type BackgroundMetadata = { source: string; pages: Page[] }
+type BackgroundPreview = { source: string; index: number; loading: boolean; image?: string; error?: string }
+const blankPage: Page = { width: 612, height: 792 }
+
+/** Content/deletion edits remain safe before an imported page's dimensions are known. */
+function changesGeometry(before: Template, after: Template) {
+  return before.rowHeight !== after.rowHeight || before.tableTopOffset !== after.tableTopOffset ||
+    before.listPageIndex !== after.listPageIndex ||
+    after.textBlocks?.some(block => {
+      const old = before.textBlocks?.find(item => item.id === block.id)
+      return !old || block.x !== old.x || block.y !== old.y || block.width !== old.width || block.fontSize !== old.fontSize
+    }) || after.imageBlocks?.some(block => {
+      const old = before.imageBlocks?.find(item => item.id === block.id)
+      return !old || block.x !== old.x || block.y !== old.y || block.width !== old.width || block.height !== old.height
+    })
+}
 interface FinalPDF {
   token: string
   image: string
@@ -79,8 +96,20 @@ export function DocumentStudio({
   const [zoom, setZoom] = useState(() =>
       Math.max(0.25, Math.min(0.78, (window.innerWidth - 40) / 612)),
     ),
-    [background, setBackground] = useState<Background | null>(null),
-    [backgroundBusy, setBackgroundBusy] = useState(false)
+    [backgroundMetadata, setBackgroundMetadata] = useState<BackgroundMetadata | null>(null),
+    [backgroundPreview, setBackgroundPreview] = useState<BackgroundPreview | null>(null),
+    [backgroundAttempt, setBackgroundAttempt] = useState(0)
+  const metadataRef = useRef(backgroundMetadata)
+  metadataRef.current = backgroundMetadata
+  const rememberPages = (value: BackgroundMetadata | null) => {
+    metadataRef.current = value
+    setBackgroundMetadata(value)
+  }
+  const pageFor = (template: Template): Page | undefined => {
+    if (!template.backgroundPDFData) return blankPage
+    const metadata = metadataRef.current
+    return metadata?.source === template.backgroundPDFData ? metadata.pages[template.listPageIndex || 0] : undefined
+  }
   const [mode, setMode] = useState<'blank' | 'completed'>('blank'),
     [eventSelection, setEventSelection] = useState(eventID || ''),
     [view, setView] = useState<'design' | 'final'>('design')
@@ -108,7 +137,15 @@ export function DocumentStudio({
   const paperScrollRef = useRef<HTMLDivElement>(null)
   const organization = s.organizations.find((o) => o.id === orgID)!,
     chosenEvent = s.events.find((e) => e.id === eventSelection)
-  const page = background?.pages[draft.listPageIndex || 0] || { width: 612, height: 792 }
+  // Letter is only a visual placeholder until imported geometry is available.
+  const knownPage = pageFor(draft), pageReady = !!knownPage, page = knownPage || blankPage
+  const matchingPreview = backgroundPreview && backgroundPreview.source === draft.backgroundPDFData &&
+    backgroundPreview.index === (draft.listPageIndex || 0) ? backgroundPreview : null
+  const background = draft.backgroundPDFData && backgroundMetadata?.source === draft.backgroundPDFData
+    ? { pages: backgroundMetadata.pages, image: matchingPreview?.image || '' } : null
+  const backgroundBusy = !!draft.backgroundPDFData && nativeAvailable && (!matchingPreview || matchingPreview.loading)
+  const backgroundError = matchingPreview?.error || ''
+  const retryBackground = () => setBackgroundAttempt(attempt => attempt + 1)
   useEffect(() => {
     const element = paperScrollRef.current
     if (!element) return
@@ -159,15 +196,21 @@ export function DocumentStudio({
     invalidate()
   }, [previewSource])
   const patch = (values: Partial<Template> | ((current: Template) => Partial<Template>)) => {
+    let accepted = false
     setDraft((d) => {
       const updates = typeof values === 'function' ? values(d) : values
-      if ('backgroundPDFData' in updates || 'listPageIndex' in updates) pdfImportVersion.current++
+      if (!Object.keys(updates).length) return d
       const next = { ...d, ...updates }
-      if (updates.rowHeight !== undefined || updates.tableTopOffset !== undefined)
-        next.tableTopOffset = Math.max(100, Math.min(next.tableTopOffset ?? 100, maximumTableOffset(page, next.rowHeight)))
+      const target = pageFor(next)
+      if (!target && changesGeometry(d, next)) return d
+      if ('backgroundPDFData' in updates || 'listPageIndex' in updates) pdfImportVersion.current++
+      if (target && (updates.rowHeight !== undefined || updates.tableTopOffset !== undefined))
+        next.tableTopOffset = Math.max(100, Math.min(next.tableTopOffset ?? 100, maximumTableOffset(target, next.rowHeight)))
+      accepted = true
       return next
     })
-    invalidate()
+    if (accepted) invalidate()
+    return accepted
   }
   const dirty = !saved || !sameTemplate(draft, saved)
   useEffect(() => {
@@ -184,27 +227,33 @@ export function DocumentStudio({
   useEffect(() => {
     let cancelled = false
     if (!draft.backgroundPDFData || !nativeAvailable) {
-      setBackground(null)
+      setBackgroundPreview(null)
+      rememberPages(null)
       return
     }
-    setBackgroundBusy(true)
+    const source = draft.backgroundPDFData, index = draft.listPageIndex || 0
+    setBackgroundPreview({ source, index, loading: true })
     void native<Background>('backgroundPage', {
-      data: draft.backgroundPDFData,
-      index: draft.listPageIndex || 0,
+      data: source,
+      index,
     })
       .then((result) => {
-        if (!cancelled) setBackground(result)
+        if (!cancelled) {
+          rememberPages({ source, pages: result.pages })
+          setBackgroundPreview({ source, index, loading: false, image: result.image })
+        }
       })
       .catch((e) => {
-        if (!cancelled) notify(String(e), true)
-      })
-      .finally(() => {
-        if (!cancelled) setBackgroundBusy(false)
+        if (!cancelled) {
+          setBackgroundPreview({ source, index, loading: false, error: String(e) })
+          notify(String(e), true)
+        }
       })
     return () => {
       cancelled = true
     }
-  }, [draft.backgroundPDFData, draft.listPageIndex, notify])
+  }, [draft.backgroundPDFData, draft.listPageIndex, backgroundAttempt, notify])
+  useLayoutEffect(() => { drag.current = null }, [draft.backgroundPDFData, draft.listPageIndex])
   useEffect(() => {
     const move = (e: PointerEvent) => {
       const d = drag.current
@@ -212,36 +261,44 @@ export function DocumentStudio({
       const x = (e.clientX - d.x) / zoom + d.originX,
         y = (e.clientY - d.y) / zoom + d.originY
       if (d.kind === 'table')
-        setDraft((t) => ({
-          ...t,
-          tableTopOffset: Math.max(100, Math.min(maximumTableOffset(page, t.rowHeight), y)),
-        }))
+        setDraft((t) => {
+          const target = pageFor(t)
+          return target ? { ...t, tableTopOffset: Math.max(100, Math.min(maximumTableOffset(target, t.rowHeight), y)) } : t
+        })
       if (d.kind === 'text')
-        setDraft((t) => ({
-          ...t,
-          textBlocks: t.textBlocks?.map((b) =>
-            b.id === d.id
-              ? {
-                  ...b,
-                  x: Math.max(0, Math.min(page.width - b.width, x)),
-                  y: Math.max(0, Math.min(page.height - b.fontSize * 2.5, y)),
-                }
-              : b,
-          ),
-        }))
+        setDraft((t) => {
+          const target = pageFor(t)
+          if (!target) return t
+          return {
+            ...t,
+            textBlocks: t.textBlocks?.map((b) =>
+              b.id === d.id
+                ? {
+                    ...b,
+                    x: Math.max(0, Math.min(target.width - b.width, x)),
+                    y: Math.max(0, Math.min(target.height - b.fontSize * 2.5, y)),
+                  }
+                : b,
+            ),
+          }
+        })
       if (d.kind === 'image')
-        setDraft((t) => ({
-          ...t,
-          imageBlocks: t.imageBlocks?.map((b) =>
-            b.id === d.id
-              ? {
-                  ...b,
-                  x: Math.max(0, Math.min(page.width - b.width, x)),
-                  y: Math.max(0, Math.min(page.height - b.height, y)),
-                }
-              : b,
-          ),
-        }))
+        setDraft((t) => {
+          const target = pageFor(t)
+          if (!target) return t
+          return {
+            ...t,
+            imageBlocks: t.imageBlocks?.map((b) =>
+              b.id === d.id
+                ? {
+                    ...b,
+                    x: Math.max(0, Math.min(target.width - b.width, x)),
+                    y: Math.max(0, Math.min(target.height - b.height, y)),
+                  }
+                : b,
+            ),
+          }
+        })
       invalidate()
     }
     const up = () => {
@@ -263,16 +320,19 @@ export function DocumentStudio({
     originY: number,
     blockID?: string,
   ) => {
+    if (!pageFor(draft)) return
     e.preventDefault()
     e.stopPropagation()
     drag.current = { kind, id: blockID, x: e.clientX, y: e.clientY, originX, originY }
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
   }
   const changePage = (index: number) => {
-    const target = background?.pages[index]
-    if (!target) return
     try {
-      patch({ ...fitTemplateToPage(draft, target), listPageIndex: index })
+      patch(current => {
+        const metadata = metadataRef.current
+        const target = metadata && metadata.source === current.backgroundPDFData ? metadata.pages[index] : undefined
+        return target ? { ...fitTemplateToPage(current, target), listPageIndex: index } : {}
+      })
     } catch (error) {
       notify(error instanceof Error ? error.message : String(error), true)
     }
@@ -286,17 +346,19 @@ export function DocumentStudio({
         listPageIndex: number
         pages: { width: number; height: number }[]
       }>('importPDF')
-      if (!result.cancelled && version === pdfImportVersion.current)
-        patch((current) => ({
-          ...fitTemplateToPage(current, result.pages[result.listPageIndex]),
-          backgroundPDFData: result.data,
-          listPageIndex: result.listPageIndex,
-        }))
+      if (!result.cancelled && version === pdfImportVersion.current) {
+        patch((current) => {
+          const fitted = fitTemplateToPage(current, result.pages[result.listPageIndex])
+          rememberPages({ source: result.data, pages: result.pages })
+          return { ...fitted, backgroundPDFData: result.data, listPageIndex: result.listPageIndex }
+        })
+      }
     } catch (e) {
       if (version === pdfImportVersion.current) notify(String(e), true)
     }
   }
   const importImage = async () => {
+    if (!pageFor(draft)) return
     try {
       const result = await native<{
         cancelled?: boolean
@@ -309,7 +371,10 @@ export function DocumentStudio({
       const width = Math.max(20, result.width * scale),
         height = Math.max(20, result.height * scale)
       const block = { id: id(), imageData: result.data, x: 46, y: 46, width, height }
-      patch((current) => ({ imageBlocks: [...(current.imageBlocks || []), block] }))
+      if (!patch((current) => ({ imageBlocks: [...(current.imageBlocks || []), block] }))) {
+        notify(tr('Espera a que se cargue el PDF y vuelve a importar la imagen.'), true)
+        return
+      }
       setSelected(block.id)
       return block.id
     } catch (e) {
@@ -317,12 +382,14 @@ export function DocumentStudio({
     }
   }
   const addText = () => {
+    const target = pageFor(draft)
+    if (!target) return
     const block = {
       id: id(),
       text: tr('Escribe aquí'),
       x: 46,
       y: 36,
-      width: Math.min(220, page.width - 92),
+      width: Math.min(220, target.width - 92),
       fontSize: 14,
     }
     patch((current) => ({ textBlocks: [...(current.textBlocks || []), block] }))
@@ -487,7 +554,11 @@ export function DocumentStudio({
           canUndo={canUndo}
           canRedo={canRedo}
           page={page}
+          pageReady={pageReady}
           background={background}
+          backgroundBusy={backgroundBusy}
+          backgroundError={backgroundError}
+          retryBackground={retryBackground}
           importPDF={importPDF}
           importImage={importImage}
           addText={addText}
@@ -663,11 +734,11 @@ export function DocumentStudio({
           <div className="tool-section">
             <h3>{tr('Añadir')}</h3>
             <div className="tool-grid">
-              <button onClick={addText}>
+              <button disabled={!pageReady} onClick={addText}>
                 <Type size={19} />
                 {tr('Texto')}
               </button>
-              <button onClick={() => void importImage()}>
+              <button disabled={!pageReady} onClick={() => void importImage()}>
                 <ImagePlus size={19} />
                 {tr('Imagen')}
               </button>
@@ -695,6 +766,7 @@ export function DocumentStudio({
                     type="range"
                     min={8}
                     max={32}
+                    disabled={!pageReady}
                     value={selectedText.fontSize}
                     onChange={(e) =>
                       patch({
@@ -719,7 +791,7 @@ export function DocumentStudio({
                     type="range"
                     min={imageBounds?.min ?? selectedImage.width}
                     max={imageBounds?.max ?? selectedImage.width}
-                    disabled={!imageBounds}
+                    disabled={!pageReady || !imageBounds}
                     value={selectedImage.width}
                     onChange={(e) => {
                       const width = Number(e.target.value)
@@ -807,6 +879,7 @@ export function DocumentStudio({
                 type="range"
                 min={18}
                 max={80}
+                disabled={!pageReady}
                 value={draft.rowHeight}
                 onChange={(e) => patch({ rowHeight: Number(e.target.value) })}
               />
@@ -859,6 +932,12 @@ export function DocumentStudio({
               </IconButton>
             </div>
           </div>
+          {backgroundError && (
+            <div className="form-error" role="alert">
+              <p>{backgroundError}</p>
+              <button className="button" onClick={retryBackground}>{tr('Reintentar')}</button>
+            </div>
+          )}
           <div className="paper-scroll" ref={paperScrollRef}>
             {view === 'design' ? (
               <div
@@ -871,7 +950,7 @@ export function DocumentStudio({
                   style={{ width: page.width, height: page.height, transform: `scale(${zoom})` }}
                   onClick={() => setSelected(null)}
                 >
-                  {background && (
+                  {background?.image && (
                     <img
                       className="pdf-background"
                       src={background.image}
@@ -900,6 +979,7 @@ export function DocumentStudio({
                       <button
                         className="drag-handle"
                         aria-label={tr('Mover texto')}
+                        disabled={!pageReady}
                         onPointerDown={(e) => startDrag(e, 'text', b.x, b.y, b.id)}
                       >
                         <GripHorizontal size={16} />
@@ -931,6 +1011,7 @@ export function DocumentStudio({
                       <button
                         className="drag-handle"
                         aria-label={tr('Mover imagen')}
+                        disabled={!pageReady}
                         onPointerDown={(e) => startDrag(e, 'image', b.x, b.y, b.id)}
                       >
                         <GripHorizontal size={16} />
@@ -950,6 +1031,7 @@ export function DocumentStudio({
                       className="table-drag"
                       onPointerDown={(e) => startDrag(e, 'table', 46, draft.tableTopOffset ?? 100)}
                       aria-label={tr('Mover lista verticalmente')}
+                      disabled={!pageReady}
                     >
                       <GripHorizontal size={16} />
                       <span>{tr('Mover lista')}</span>

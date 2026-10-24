@@ -60,10 +60,14 @@ type Props = {
   canUndo: boolean
   canRedo: boolean
   page: { width: number; height: number }
+  pageReady: boolean
   background: { image: string; pages: { width: number; height: number }[] } | null
+  backgroundBusy: boolean
+  backgroundError: string
+  retryBackground: () => void
   importPDF: () => Promise<void>
   importImage: () => Promise<string | undefined>
-  addText: () => string
+  addText: () => string | undefined
   changePage: (index: number) => void
   entries: Attendance[]
   events: Activity[]
@@ -175,6 +179,15 @@ export function MobileStudio(p: Props) {
         className="mobile-document-scroll"
         aria-label={tr('Vista previa del documento')}
       >
+        {p.view === 'design' && p.backgroundBusy && (
+          <p role="status">{tr('Preparando PDF…')}</p>
+        )}
+        {p.view === 'design' && p.backgroundError && (
+          <div className="mobile-render-error" role="alert">
+            <p>{p.backgroundError}</p>
+            <button className="button" onClick={p.retryBackground}>{tr('Reintentar')}</button>
+          </div>
+        )}
         {p.view === 'final' ? (
           <div
             className="mobile-final-preview"
@@ -475,11 +488,15 @@ export function MobileStudio(p: Props) {
             {panel === 'elements' && (
               <>
                 <div className="mobile-element-add">
-                  <button onClick={() => setElement(p.addText())}>
+                  <button disabled={!p.pageReady} onClick={() => {
+                    const id = p.addText()
+                    if (id) setElement(id)
+                  }}>
                     <Type size={23} />
                     {tr('Añadir texto')}
                   </button>
                   <button
+                    disabled={!p.pageReady}
                     onClick={() =>
                       void p.importImage().then((id) => {
                         if (id) setElement(id)
@@ -534,6 +551,7 @@ export function MobileStudio(p: Props) {
                       value={text.fontSize}
                       min={8}
                       max={32}
+                      disabled={!p.pageReady}
                       onChange={(fontSize) =>
                         updateText({
                           fontSize,
@@ -546,6 +564,7 @@ export function MobileStudio(p: Props) {
                       value={text.width}
                       min={60}
                       max={Math.min(2000, p.page.width - text.x)}
+                      disabled={!p.pageReady}
                       onChange={(width) =>
                         updateText({ width: Math.max(60, Math.min(2000, p.page.width - text.x, width)) })
                       }
@@ -555,6 +574,7 @@ export function MobileStudio(p: Props) {
                       y={text.y}
                       maxX={p.page.width - text.width}
                       maxY={p.page.height - text.fontSize * 2.5}
+                      disabled={!p.pageReady}
                       onChange={updateText}
                     />
                     <button className="mobile-remove-element" onClick={remove}>
@@ -570,6 +590,7 @@ export function MobileStudio(p: Props) {
                       value={image.width}
                       min={imageBounds?.min ?? image.width}
                       max={imageBounds?.max ?? image.width}
+                      disabled={!p.pageReady || !imageBounds}
                       onChange={(width) => updateImage(resizeImageBlock(image, width, p.page))}
                     />
                     <Position
@@ -577,6 +598,7 @@ export function MobileStudio(p: Props) {
                       y={image.y}
                       maxX={p.page.width - image.width}
                       maxY={p.page.height - image.height}
+                      disabled={!p.pageReady}
                       onChange={updateImage}
                     />
                     <button className="mobile-remove-element" onClick={remove}>
@@ -594,6 +616,7 @@ export function MobileStudio(p: Props) {
                   value={d.tableTopOffset ?? 100}
                   min={100}
                   max={Math.max(100, maximumTableOffset(p.page, d.rowHeight))}
+                  disabled={!p.pageReady}
                   onChange={(tableTopOffset) => p.patch({ tableTopOffset })}
                 />
                 <Range
@@ -601,6 +624,7 @@ export function MobileStudio(p: Props) {
                   value={d.rowHeight}
                   min={18}
                   max={80}
+                  disabled={!p.pageReady}
                   onChange={(rowHeight) => p.patch({ rowHeight })}
                 />
                 <label className="studio-color-field">
@@ -648,12 +672,14 @@ function Range({
   min,
   max,
   onChange,
+  disabled = false,
 }: {
   label: string
   value: number
   min: number
   max: number
   onChange: (value: number) => void
+  disabled?: boolean
 }) {
   return (
     <label className="studio-range">
@@ -666,7 +692,8 @@ function Range({
         min={min}
         max={Math.max(min, max)}
         value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        disabled={disabled}
+        onChange={(e) => { if (!disabled) onChange(Number(e.target.value)) }}
       />
     </label>
   )
@@ -677,12 +704,14 @@ function Position({
   maxX,
   maxY,
   onChange,
+  disabled = false,
 }: {
   x: number
   y: number
   maxX: number
   maxY: number
   onChange: (v: { x?: number; y?: number }) => void
+  disabled?: boolean
 }) {
   return (
     <div className="element-position">
@@ -691,6 +720,7 @@ function Position({
         value={x}
         min={0}
         max={maxX}
+        disabled={disabled}
         onChange={(x) => onChange({ x })}
       />
       <Range
@@ -698,6 +728,7 @@ function Position({
         value={y}
         min={0}
         max={maxY}
+        disabled={disabled}
         onChange={(y) => onChange({ y })}
       />
     </div>
@@ -721,7 +752,7 @@ function MobilePaper(p: Props & { onEdit: (id: string | null, panel: Panel) => v
         className="mobile-paper"
         style={{ width: p.page.width, height: p.page.height, transform: `scale(${scale || 0.5})` }}
       >
-        {p.background && (
+        {p.background?.image && (
           <img
             className="mobile-paper-background"
             src={p.background.image}

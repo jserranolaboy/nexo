@@ -3517,3 +3517,311 @@ describe('Attendance keyboard retains the current person after a refused or fail
     expect(r.focused()).toBe('member-1')
   })
 })
+
+
+describe('Imported background identity and loading state', () => {
+  const words = (node: unknown): string => {
+    if (typeof node === 'string' || typeof node === 'number') return String(node)
+    if (Array.isArray(node)) return node.map(words).join(' ')
+    if (node && typeof node === 'object' && 'props' in node) return words((node as Element).props.children)
+    return ''
+  }
+  const namedButton = (tree: unknown, name: string) => find(tree, el => el.type === 'button' && words(el.props.children).trim() === name)
+  function editor(mobile = true, offset = 200, textY = 100) {
+    if (mobile) window.nexoDevice = 'iPhone'
+    const s = fixture(), template = { ...newTemplate('org'), backgroundPDFData: 'old-pdf', listPageIndex: 0, tableTopOffset: offset,
+      textBlocks: [{ id: 'text', text: 'Synthetic heading', x: 46, y: textY, width: 220, fontSize: 14 }] }
+    s.templates = [template]
+    const requests: { data: string; index: number; resolve: (result: unknown) => void; reject: (error: Error) => void }[] = []
+    let imported = { data: 'new-pdf', image: 'new-import-image', listPageIndex: 0, pages: [{ width: 900, height: 1200 }] }
+    const notify = vi.fn(), mutate = vi.fn().mockResolvedValue(s), hooks = new test.Hooks(), mobileHooks = new test.Hooks()
+    test.context = { mutate, notify, demo: true, busy: false }
+    test.bridge.mockImplementation(({ command, data, index }) => {
+      if (command === 'backgroundPage') return new Promise((resolve, reject) => requests.push({ data, index, resolve, reject }))
+      if (command === 'importPDF') return Promise.resolve(imported)
+      return Promise.resolve({})
+    })
+    const render = () => hooks.render(() => DocumentStudio({ s, orgID: 'org', initial: template, back: vi.fn() }))
+    const props = () => component(render(), 'MobileStudio').props
+    const mobileTree = () => mobileHooks.render(() => invoke(component(render(), 'MobileStudio')))
+    const panel = (name: string) => { namedButton(mobileTree(), tr(name)).props.onClick(); return mobileTree() }
+    const pageSelect = () => find(mobileTree(), el => el.type === 'label' && words(el.props.children).startsWith(tr('Página del PDF'))).props.children.find((el: Element) => el?.type === 'select') as Element
+    const rowHeight = (value: number) => {
+      panel('Formato')
+      const range = find(mobileTree(), el => typeof el.type === 'function' && el.type.name === 'Range' && el.props.label === tr('Altura de fila'))
+      find(invoke(range), el => el.type === 'input').props.onChange({ target: { value: String(value) } })
+    }
+    render()
+    return { render, props, mobileTree, panel, pageSelect, rowHeight, requests, notify, mutate,
+      importPDF: async () => { namedButton(panel('Documento'), tr('Cambiar PDF')).props.onClick(); await flush(); props() },
+      resolve: async (i: number, image = `image-${i}`, pages = [{ width: 320, height: 350 }, { width: 612, height: 792 }]) => {
+        requests[i].resolve({ image, pages }); await flush(); render()
+      },
+      reject: async (i: number) => { requests[i].reject(new Error('Synthetic background failure')); await flush(); render() },
+      setImported: (value: typeof imported) => { imported = value },
+    }
+  }
+
+  it('does not show the previous page image while a selected page is loading', async () => {
+    const r = editor()
+    await r.resolve(0)
+    r.panel('Documento'); r.pageSelect().props.onChange({ target: { value: '1' } })
+    const p = r.props()
+    expect(p.draft.listPageIndex).toBe(1)
+    expect(p.page).toEqual({ width: 612, height: 792 })
+    expect(p.background?.image).not.toBe('image-0')
+  })
+
+  it('does not leave a previous page image after the current page fails to load', async () => {
+    const r = editor()
+    await r.resolve(0)
+    r.panel('Documento'); r.pageSelect().props.onChange({ target: { value: '1' } }); r.props()
+    await r.reject(1)
+    expect(r.notify).toHaveBeenCalledWith(expect.stringContaining('Synthetic background failure'), true)
+    expect(r.props().draft.listPageIndex).toBe(1)
+    expect(r.props().background?.image).not.toBe('image-0')
+  })
+
+  it('does not offer a previous PDF page index after importing a one-page replacement', async () => {
+    const r = editor()
+    await r.resolve(0)
+    await r.importPDF()
+    expect(r.props().draft.backgroundPDFData).toBe('new-pdf')
+    let stalePage: Element | undefined
+    try { stalePage = find(r.pageSelect(), el => el.type === 'option' && el.props.value === 1 && !el.props.disabled) } catch { /* No stale selector is also safe. */ }
+    expect(stalePage).toBeUndefined()
+  })
+
+  it('does not let an old PDF page selector write an invalid index into its replacement', async () => {
+    const r = editor()
+    await r.resolve(0)
+    await r.importPDF()
+    let oldSelect: Element | undefined
+    try {
+      const select = r.pageSelect()
+      find(select, el => el.type === 'option' && el.props.value === 1 && !el.props.disabled)
+      oldSelect = select
+    } catch { /* Hiding an unavailable page selector is safe. */ }
+    oldSelect?.props.onChange({ target: { value: '1' } })
+    const p = r.props()
+    expect(p.draft.backgroundPDFData).toBe('new-pdf')
+    expect(p.draft.listPageIndex).toBe(0)
+    expect(r.requests.some(request => request.data === 'new-pdf' && request.index === 1)).toBe(false)
+  })
+
+  it('does not clamp the new taller paper geometry against the previous shorter PDF', async () => {
+    const r = editor()
+    await r.resolve(0)
+    await r.importPDF()
+    r.rowHeight(80)
+    expect(r.props().draft.rowHeight).toBe(80)
+    expect(r.props().draft.tableTopOffset).toBe(200)
+  })
+
+  it('does not use fallback Letter bounds to move existing imported text before its page loads', () => {
+    const r = editor(true, 200, 800)
+    let input: Element | undefined
+    try {
+      component(r.mobileTree(), 'MobilePaper').props.onEdit('text', 'elements')
+      const range = find(r.mobileTree(), el => typeof el.type === 'function' && el.type.name === 'Range' && el.props.label === tr('Tamaño del texto'))
+      input = find(invoke(range), el => el.type === 'input')
+    } catch { /* A loading view may hide geometry controls until dimensions are known. */ }
+    if (input && !input.props.disabled) input.props.onChange({ target: { value: '32' } })
+    expect(r.props().draft.textBlocks[0].y).toBe(800)
+  })
+
+  it('retains existing tall-page text position once matching dimensions are available', async () => {
+    const r = editor(true, 200, 800)
+    await r.resolve(0, 'tall-paper', [{ width: 900, height: 1200 }])
+    component(r.mobileTree(), 'MobilePaper').props.onEdit('text', 'elements')
+    const range = find(r.mobileTree(), el => typeof el.type === 'function' && el.type.name === 'Range' && el.props.label === tr('Tamaño del texto'))
+    find(invoke(range), el => el.type === 'input').props.onChange({ target: { value: '32' } })
+    expect(r.props().draft.textBlocks[0]).toMatchObject({ y: 800, fontSize: 32 })
+  })
+
+  it('clears desktop loading when the actual blank-paper action removes a pending PDF', async () => {
+    const r = editor(false)
+    expect(words(r.render())).toContain(tr('· Cargando PDF…'))
+    namedButton(r.render(), tr('Volver a hoja en blanco')).props.onClick()
+    expect(words(r.render())).not.toContain(tr('· Cargando PDF…'))
+    await r.resolve(0)
+    expect(words(r.render())).not.toContain(tr('· Cargando PDF…'))
+    expect(() => find(r.render(), el => el.type === 'img' && el.props.className === 'pdf-background')).toThrow()
+  })
+
+  it('keeps only the latest successful page after overlapping page requests', async () => {
+    const r = editor()
+    await r.resolve(0)
+    r.panel('Documento'); r.pageSelect().props.onChange({ target: { value: '1' } }); r.props()
+    r.pageSelect().props.onChange({ target: { value: '0' } }); r.props()
+    await r.resolve(2, 'latest-page')
+    await r.resolve(1, 'stale-page')
+    expect(r.props().background.image).toBe('latest-page')
+    expect(r.props().draft.listPageIndex).toBe(0)
+  })
+
+  it('keeps a deliberate blank-paper choice after the old request fails', async () => {
+    const r = editor()
+    namedButton(r.panel('Documento'), tr('Usar hoja en blanco')).props.onClick(); r.props()
+    await r.reject(0)
+    expect(r.props().draft.backgroundPDFData).toBeUndefined()
+    expect(r.props().background).toBeNull()
+    expect(r.props().page).toEqual({ width: 612, height: 792 })
+    expect(r.notify).not.toHaveBeenCalled()
+  })
+
+  it('keeps unknown imported geometry unchanged while content edits and Save remain available', async () => {
+    const r = editor(true, 500, 800), before = structuredClone(r.props().draft)
+    expect(r.props().pageReady).toBe(false)
+    r.props().patch({ rowHeight: 80, tableTopOffset: 100 })
+    r.props().patch({ textBlocks: [{ ...before.textBlocks[0], y: 712, fontSize: 32 }] })
+    r.props().patch({ name: 'Edited name', accentHex: '#007AFF', textBlocks: [{ ...before.textBlocks[0], text: 'Edited content' }] })
+    await r.props().save()
+    const saved = r.mutate.mock.calls[0][0].entity
+    expect(saved).toEqual({ ...before, name: 'Edited name', accentHex: '#007AFF', textBlocks: [{ ...before.textBlocks[0], text: 'Edited content' }] })
+    expect(r.requests).toHaveLength(1)
+  })
+
+  it('retries a failed initial page without fitting or changing the saved geometry', async () => {
+    const r = editor(true, 500, 800), before = structuredClone(r.props().draft)
+    await r.reject(0)
+    expect(r.props().pageReady).toBe(false)
+    expect(r.props().backgroundError).toContain('Synthetic background failure')
+    const retry = namedButton(r.mobileTree(), tr('Reintentar'))
+    retry.props.onClick()
+    expect(r.props().backgroundBusy).toBe(true)
+    expect(r.requests[1]).toMatchObject({ data: 'old-pdf', index: 0 })
+    await r.resolve(1, 'retried-paper', [{ width: 900, height: 1200 }])
+    expect(r.props().pageReady).toBe(true)
+    expect(r.props().backgroundError).toBe('')
+    expect(r.props().backgroundBusy).toBe(false)
+    expect(r.props().draft).toEqual(before)
+    expect(r.props().canUndo).toBe(false)
+  })
+
+  it('can save a copy without rewriting geometry while the background is unresolved', async () => {
+    const r = editor(true, 500, 800), before = structuredClone(r.props().draft)
+    await r.props().saveCopy()
+    const copy = r.mutate.mock.calls[0][0].entity
+    expect(copy.id).not.toBe(before.id)
+    expect(copy).toEqual({ ...before, id: copy.id, name: before.name + ' ' + tr('· copia') })
+    expect(r.props().draft.textBlocks).toEqual(before.textBlocks)
+    expect(r.props().draft.tableTopOffset).toBe(before.tableTopOffset)
+    expect(r.props().pageReady).toBe(false)
+  })
+
+  it('retains matching page dimensions after a thumbnail failure', async () => {
+    const r = editor()
+    await r.resolve(0, 'short-paper', [{ width: 320, height: 350 }, { width: 900, height: 1200 }])
+    r.props().changePage(1); r.props()
+    await r.reject(1)
+    expect(r.props().pageReady).toBe(true)
+    expect(r.props().page).toEqual({ width: 900, height: 1200 })
+    r.rowHeight(80)
+    expect(r.props().draft).toMatchObject({ listPageIndex: 1, rowHeight: 80, tableTopOffset: 200 })
+    expect(r.props().background.image).toBe('')
+  })
+
+  it('guards a retained geometry callback after the PDF source changes', async () => {
+    const r = editor(true, 500, 800)
+    await r.resolve(0, 'old-tall-paper', [{ width: 900, height: 1200 }])
+    component(r.mobileTree(), 'MobilePaper').props.onEdit('text', 'elements')
+    const range = find(r.mobileTree(), el => typeof el.type === 'function' && el.type.name === 'Range' && el.props.label === tr('Tamaño del texto'))
+    const oldInput = find(invoke(range), el => el.type === 'input')
+    r.props().patch({ backgroundPDFData: 'unknown-pdf' }); r.props()
+    oldInput.props.onChange({ target: { value: '32' } })
+    expect(r.props().draft.textBlocks[0]).toMatchObject({ y: 800, fontSize: 14 })
+  })
+
+  it('does not begin desktop geometry dragging before imported dimensions are known', () => {
+    const r = editor(false, 500, 800), capture = vi.fn()
+    const handle = find(r.render(), el => el.type === 'button' && el.props['aria-label'] === tr('Mover texto'))
+    expect(handle.props.disabled).toBe(true)
+    handle.props.onPointerDown({ preventDefault: vi.fn(), stopPropagation: vi.fn(), clientX: 0, clientY: 0, pointerId: 1, currentTarget: { setPointerCapture: capture } })
+    window.dispatchEvent(Object.assign(new Event('pointermove'), { clientX: 10, clientY: 10 }))
+    expect(capture).not.toHaveBeenCalled()
+    const textarea = find(r.render(), el => el.type === 'textarea' && el.props['aria-label'] === tr('Texto sobre el papel'))
+    expect(textarea.props.style.fontSize).toBe(14)
+    const block = find(r.render(), el => el.type === 'div' && String(el.props.className).startsWith('paper-text-block'))
+    expect(block.props.style.top).toBe(800)
+  })
+
+  it('keeps the current metadata and draft if an imported replacement cannot fit', async () => {
+    const r = editor()
+    await r.resolve(0)
+    const before = structuredClone(r.props().draft)
+    r.setImported({ data: 'too-small', image: '', listPageIndex: 0, pages: [{ width: 200, height: 200 }] })
+    await r.importPDF()
+    expect(r.props().draft).toEqual(before)
+    expect(r.props().pageReady).toBe(true)
+    expect(r.props().page).toEqual({ width: 320, height: 350 })
+    expect(r.props().background.image).toBe('image-0')
+    expect(r.requests).toHaveLength(1)
+    expect(r.notify).toHaveBeenCalledOnce()
+  })
+
+  it('fits an explicit replacement using its dimensions, not the previous page limits', async () => {
+    const r = editor(true, 500)
+    await r.resolve(0)
+    await r.importPDF()
+    expect(r.props().draft.tableTopOffset).toBe(500)
+    expect(r.props().page).toEqual({ width: 900, height: 1200 })
+  })
+
+  it('does not install stale source metadata after a replacement is already current', async () => {
+    const r = editor()
+    await r.importPDF()
+    await r.resolve(0, 'stale-source', [{ width: 320, height: 350 }])
+    expect(r.props().page).toEqual({ width: 900, height: 1200 })
+    expect(r.props().background?.image).not.toBe('stale-source')
+    expect(r.props().draft.backgroundPDFData).toBe('new-pdf')
+  })
+})
+
+
+describe('Imported image completion during paper metadata reload', () => {
+  it('reports a refused late image append honestly and permits retry after paper metadata loads', async () => {
+    window.nexoDevice = 'iPhone'
+    const s = fixture(), template = { ...newTemplate('org'), backgroundPDFData: 'old-paper', listPageIndex: 0 }
+    template.imageBlocks = [{ id: 'existing', imageData: 'existing-image', x: 46, y: 46, width: 100, height: 100 }]
+    s.templates = [template]
+    const hooks = new test.Hooks(), backgrounds: ((value: unknown) => void)[] = []
+    let completeImage!: (value: unknown) => void
+    const notify = vi.fn()
+    test.context = { mutate: vi.fn(), notify, demo: true, busy: false }
+    test.bridge.mockImplementation(({ command }) => {
+      if (command === 'backgroundPage') return new Promise(resolve => backgrounds.push(resolve))
+      if (command === 'importPDF') return Promise.resolve({ data: 'new-paper', listPageIndex: 0, pages: [{ width: 900, height: 1200 }] })
+      if (command === 'importImage') return new Promise(resolve => { completeImage = resolve })
+      return Promise.resolve({})
+    })
+    const render = () => component(hooks.render(() => DocumentStudio({ s, orgID: 'org', initial: template, back: vi.fn() })), 'MobileStudio').props
+    render()
+    backgrounds[0]({ image: 'old-preview', pages: [{ width: 612, height: 792 }] })
+    await flush()
+    await render().importPDF()
+    const importing = render().importImage()
+    render().undo()
+    expect(render().draft.backgroundPDFData).toBe('old-paper')
+    // Its new background request is still unresolved; no current metadata is available.
+    expect(backgrounds).toHaveLength(3)
+    completeImage({ data: 'requested-image', width: 100, height: 100 })
+    const addedID = await importing
+    const images = render().draft.imageBlocks
+    expect(addedID).toBeUndefined()
+    expect(images).toEqual(template.imageBlocks)
+    expect(notify).toHaveBeenCalledWith(tr('Espera a que se cargue el PDF y vuelve a importar la imagen.'), true)
+    // No imported bytes or old geometry were changed; a deliberate retry can succeed.
+    backgrounds[2]({ image: 'reloaded-old-preview', pages: [{ width: 612, height: 792 }] })
+    await flush()
+    const retry = render().importImage()
+    completeImage({ data: 'retried-image', width: 100, height: 100 })
+    const retryID = await retry
+    expect(retryID).toBeTruthy()
+    expect(render().draft.imageBlocks).toEqual([
+      template.imageBlocks[0],
+      { id: retryID, imageData: 'retried-image', x: 46, y: 46, width: 160, height: 160 },
+    ])
+    expect(test.bridge.mock.calls.filter(([request]) => request.command === 'importImage')).toHaveLength(2)
+  })
+})
