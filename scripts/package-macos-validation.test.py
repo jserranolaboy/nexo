@@ -9,7 +9,9 @@ import plistlib
 import shutil
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('packaging', HERE / 'package-macos-validation.py')
@@ -335,10 +337,57 @@ class PackageValidationTests(unittest.TestCase):
             (root/'Applications').symlink_to('/Applications')
             p.normalize_image(root)
         disk={'ReadOnlyVolume':True,'MountPoint':str(mount),'DeviceNode':'/dev/disk42s1'}
-        p.verify_mount(info,image,mount,disk,staged)
-        with self.assertRaises(ValueError):p.verify_mount(info,image,mount,{**disk,'ReadOnlyVolume':False},staged)
+        with mock.patch.object(p.os, 'statvfs', return_value=SimpleNamespace(f_flag=os.ST_RDONLY)):
+            p.verify_mount(info,image,mount,disk,staged)
+        with mock.patch.object(p.os, 'statvfs', return_value=SimpleNamespace(f_flag=0)), self.assertRaises(ValueError):
+            p.verify_mount(info,image,mount,disk,staged)
         (mount/'Nexo.app/Contents/MacOS/Nexo').write_text('tampered')
-        with self.assertRaises(ValueError):p.verify_mount(info,image,mount,disk,staged)
+        with mock.patch.object(p.os, 'statvfs', return_value=SimpleNamespace(f_flag=os.ST_RDONLY)), self.assertRaises(ValueError):
+            p.verify_mount(info,image,mount,disk,staged)
+
+    def test_readonly_mount_uses_kernel_flags_not_optional_diskutil_fields(self):
+        image, mount, info = self.image_info()
+        for fields in [{}, {'ReadOnlyVolume': False}, {'Writable': False}]:
+            disk = {'MountPoint': str(mount), 'DeviceNode': '/dev/disk42s1', **fields}
+            with self.subTest(fields=fields), mock.patch.object(
+                p.os, 'statvfs', return_value=SimpleNamespace(f_flag=os.ST_RDONLY | os.ST_NOSUID)
+            ) as query:
+                p.readonly_mount(info, image, mount, disk)
+                query.assert_called_once_with(mount)
+
+    def test_readonly_mount_rejects_writable_or_invalid_kernel_flags_despite_plist(self):
+        image, mount, info = self.image_info()
+        disk = {'MountPoint': str(mount), 'DeviceNode': '/dev/disk42s1', 'ReadOnlyVolume': True}
+        for flags in [0, os.ST_NOSUID, None, '1', True, -1]:
+            with self.subTest(flags=flags), mock.patch.object(
+                p.os, 'statvfs', return_value=SimpleNamespace(f_flag=flags)
+            ), self.assertRaisesRegex(ValueError, 'Mounted filesystem is not read-only; kernel flags:'):
+                p.readonly_mount(info, image, mount, disk)
+
+    def test_readonly_mount_does_not_fall_back_after_syscall_failure(self):
+        image, mount, info = self.image_info()
+        disk = {'MountPoint': str(mount), 'DeviceNode': '/dev/disk42s1', 'ReadOnlyVolume': True}
+        with mock.patch.object(p.os, 'statvfs', side_effect=OSError('synthetic query failure')):
+            with self.assertRaisesRegex(OSError, 'synthetic query failure'):
+                p.readonly_mount(info, image, mount, disk)
+
+    def test_readonly_mount_checks_identity_before_querying_filesystem(self):
+        image, mount, info = self.image_info()
+        disk = {'MountPoint': str(mount), 'DeviceNode': '/dev/disk42s1', 'ReadOnlyVolume': True}
+        for report, details in [({'images': []}, disk),
+                                (info, {**disk, 'MountPoint': str(self.root / 'foreign')}),
+                                (info, {**disk, 'DeviceNode': '/dev/disk9s1'})]:
+            with self.subTest(report=report, details=details), mock.patch.object(p.os, 'statvfs') as query:
+                with self.assertRaises(ValueError):
+                    p.readonly_mount(report, image, mount, details)
+                query.assert_not_called()
+
+    def test_readonly_mount_refuses_the_real_writable_synthetic_directory(self):
+        image, mount, info = self.image_info()
+        disk = {'MountPoint': str(mount), 'DeviceNode': '/dev/disk42s1', 'ReadOnlyVolume': True}
+        self.assertEqual(os.statvfs(mount).f_flag & os.ST_RDONLY, 0)
+        with self.assertRaisesRegex(ValueError, 'Mounted filesystem is not read-only'):
+            p.readonly_mount(info, image, mount, disk)
 
 
     def test_distribution_modes_are_normalized_without_following_links(self):

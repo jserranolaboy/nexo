@@ -219,9 +219,15 @@ def owned_device(info, dmg, mount):
 def readonly_mount(info, dmg, mount, disk):
     device = owned_device(info, dmg, mount)
     require(device is not None, 'Expected image is not attached')
-    require(disk.get('ReadOnlyVolume') is True, 'Mounted filesystem is not read-only')
     require(Path(disk.get('MountPoint', '')).resolve() == Path(mount).resolve(), 'Wrong mount point')
     require(re.fullmatch(re.escape(device) + r'(?:s\d+)*', disk.get('DeviceNode', '')), 'Mounted device ownership mismatch')
+    # Query the owned filesystem itself, rather than assuming a diskutil plist flag name.
+    # Missing/failed statvfs support is fatal; never infer read-only from the attach request.
+    flags = os.statvfs(mount).f_flag
+    reported = {key: disk[key] for key in ['ReadOnlyVolume', 'ReadOnlyMedia', 'Writable', 'WritableMedia'] if key in disk}
+    require(type(flags) is int and flags >= 0 and flags & os.ST_RDONLY != 0,
+            'Mounted filesystem is not read-only; kernel flags: ' + repr(flags) + '; diskutil flags: ' + repr(reported))
+    print('Verified owned read-only filesystem: ' + disk['DeviceNode'] + ', kernel flags: ' + hex(flags))
 
 
 def verify_mount(info, dmg, mount, disk, staged):
