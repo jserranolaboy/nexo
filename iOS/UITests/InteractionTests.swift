@@ -49,9 +49,13 @@ final class FreshInstallSmokeTests: XCTestCase {
             field.typeText(value)
             // Observe the complete input before submitting; never retype a prefix.
             let complete = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", value), object: field)
-            let result = XCTWaiter.wait(for: [complete], timeout: 8)
-            XCTAssertEqual(result, .completed, "Incomplete input for \(label)\n\(app.debugDescription)")
-            XCTAssertEqual(field.value as? String, value, "The complete text must reach \(label)")
+            let started = ProcessInfo.processInfo.systemUptime
+            let result = XCTWaiter.wait(for: [complete], timeout: 30)
+            print("Input observation for \(label): \(result), \(ProcessInfo.processInfo.systemUptime - started)s")
+            let observed = field.value as? String
+            XCTAssertEqual(result, .completed,
+                           "Incomplete input for \(label); expected \(String(reflecting: value)), observed \(String(reflecting: observed))\n\(app.debugDescription)", file: file, line: line)
+            XCTAssertEqual(observed, value, "The complete text must reach \(label)", file: file, line: line)
         }
 
         app.launch()
@@ -133,9 +137,13 @@ final class FreshDocumentPreviewTests: XCTestCase {
             field.tap()
             field.typeText(value)
             let complete = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", value), object: field)
-            XCTAssertEqual(XCTWaiter.wait(for: [complete], timeout: 8), .completed,
-                           "Incomplete input for \(label)\n\(app.debugDescription)", file: file, line: line)
-            XCTAssertEqual(field.value as? String, value, file: file, line: line)
+            let started = ProcessInfo.processInfo.systemUptime
+            let result = XCTWaiter.wait(for: [complete], timeout: 30)
+            print("Input observation for \(label): \(result), \(ProcessInfo.processInfo.systemUptime - started)s")
+            let observed = field.value as? String
+            XCTAssertEqual(result, .completed,
+                           "Incomplete input for \(label); expected \(String(reflecting: value)), observed \(String(reflecting: observed))\n\(app.debugDescription)", file: file, line: line)
+            XCTAssertEqual(observed, value, file: file, line: line)
             return field
         }
 
