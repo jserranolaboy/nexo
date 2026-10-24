@@ -25,14 +25,23 @@ final class FreshInstallSmokeTests: XCTestCase {
                 .matching(NSPredicate(format: "label == %@", label)).firstMatch
             XCTAssertTrue(element.waitForExistence(timeout: 15), "Missing \(label)\n\(app.debugDescription)", file: file, line: line)
         }
+        func readyToTap(_ element: XCUIElement, label: String, file: StaticString = #filePath, line: UInt = #line) {
+            // Existence alone does not establish an enabled, onscreen hit target.
+            let ready = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "exists == true AND enabled == true AND hittable == true"),
+                object: element
+            )
+            let result = XCTWaiter.wait(for: [ready], timeout: 15)
+            XCTAssertEqual(result, .completed, "Control is not ready: \(label)\n\(app.debugDescription)", file: file, line: line)
+        }
         func tap(_ label: String, file: StaticString = #filePath, line: UInt = #line) {
             let button = app.webViews.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
-            XCTAssertTrue(button.waitForExistence(timeout: 15), "Missing button \(label)\n\(app.debugDescription)", file: file, line: line)
+            readyToTap(button, label: label, file: file, line: line)
             button.tap()
         }
-        func type(_ value: String, into label: String) {
+        func type(_ value: String, into label: String, file: StaticString = #filePath, line: UInt = #line) {
             let field = app.webViews.textFields.matching(NSPredicate(format: "label == %@", label)).firstMatch
-            XCTAssertTrue(field.waitForExistence(timeout: 15), app.debugDescription)
+            readyToTap(field, label: label, file: file, line: line)
             field.tap()
             field.typeText(value)
             // Observe the complete input before submitting; never retype a prefix.
