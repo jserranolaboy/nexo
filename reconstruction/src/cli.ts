@@ -1,13 +1,16 @@
 import { describeJourney, runFirstJourney } from './journey.ts'
+import { describeVolunteers, runVolunteerJourney } from './volunteer-journey.ts'
 
 const messages = {
   es: {
-    usage: 'Uso: journey --directory DIR [--lang es|en] | show --directory DIR [--lang es|en]',
+    usage: 'Uso: journey | volunteers | show | volunteers-show --directory DIR [--lang es|en]',
     saved: 'Espacio sintético guardado. La asistencia queda en el archivo local.',
+    volunteers: 'Voluntariado sintético guardado. La selección quedó en el archivo local.',
   },
   en: {
-    usage: 'Usage: journey --directory DIR [--lang es|en] | show --directory DIR [--lang es|en]',
+    usage: 'Usage: journey | volunteers | show | volunteers-show --directory DIR [--lang es|en]',
     saved: 'Synthetic space saved. Attendance remains in the local file.',
+    volunteers: 'Synthetic volunteering saved. The selection remains in the local file.',
   },
 } as const
 
@@ -21,6 +24,11 @@ if (!parsed.command || !parsed.directory) {
   process.stdout.write(`${copy.saved}\n`)
 } else if (parsed.command === 'show') {
   process.stdout.write(`${describeJourney(parsed.directory, parsed.lang)}\n`)
+} else if (parsed.command === 'volunteers') {
+  runVolunteerJourney(parsed.directory)
+  process.stdout.write(`${copy.volunteers}\n`)
+} else if (parsed.command === 'volunteers-show') {
+  process.stdout.write(`${describeVolunteers(parsed.directory, parsed.lang)}\n`)
 } else {
   process.stderr.write(`${copy.usage}\n`)
   process.exitCode = 1
