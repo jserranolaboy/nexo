@@ -36,28 +36,51 @@ final class IOSPersistenceTests: XCTestCase {
         if let error = navigation.error { throw error }
         guard web.url == page else { XCTFail("Unexpected bundled page URL"); return }
 
-        let imported = XCTestExpectation(description: "Bundled Studio module evaluated")
-        var evaluation: Result<Any, Error>?
-        web.callAsyncJavaScript("""
-            let timer;
-            try {
-              const module = await Promise.race([
+        // The basic ObjC evaluation API avoids the unavailable Swift WebKit overlay
+        // in the pinned simulator. A title result stays inside this isolated page.
+        func javascriptString(_ value: String) throws -> String {
+            try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed), encoding: .utf8))
+        }
+        let prefix = "NexoStudioDiagnostic-\(UUID().uuidString):"
+        let moduleURL = "valentina://experience/assets/\(module.lastPathComponent)"
+        let started = XCTestExpectation(description: "Bundled Studio diagnostic started")
+        var evaluationError: Error?
+        var evaluationStarted = false
+        web.evaluateJavaScript("""
+            (() => {
+              const moduleURL = \(try javascriptString(moduleURL));
+              const prefix = \(try javascriptString(prefix));
+              const finish = result => { document.title = prefix + JSON.stringify(result); };
+              let timer;
+              Promise.race([
                 import(moduleURL),
                 new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Studio module import timed out')), 15000); })
-              ]);
-              return JSON.stringify({ exportType: typeof module.DocumentStudio, href: location.href });
-            } finally { clearTimeout(timer); }
-            """, arguments: ["moduleURL": "valentina://experience/assets/\(module.lastPathComponent)"], in: nil, in: .page) { result in
-                evaluation = result
-                imported.fulfill()
+              ]).then(
+                module => finish({ exportType: typeof module.DocumentStudio, href: location.href }),
+                error => finish({ error: String(error), href: location.href })
+              ).finally(() => clearTimeout(timer));
+            })();
+            true;
+            """) { value, error in
+                evaluationError = error
+                evaluationStarted = value as? Bool == true
+                started.fulfill()
             }
+        guard XCTWaiter.wait(for: [started], timeout: 20) == .completed else {
+            XCTFail("Bundled Studio diagnostic did not start")
+            return
+        }
+        if let error = evaluationError { throw error }
+        guard evaluationStarted else { XCTFail("Unexpected JavaScript startup result"); return }
+        let imported = XCTNSPredicateExpectation(predicate: NSPredicate(format: "title BEGINSWITH %@", prefix), object: web)
         guard XCTWaiter.wait(for: [imported], timeout: 20) == .completed else {
             XCTFail("Bundled Studio evaluation did not complete")
             return
         }
-        let value = try XCTUnwrap(evaluation).get()
-        let text = try XCTUnwrap(value as? String)
+        let title = try XCTUnwrap(web.title)
+        let text = String(title.dropFirst(prefix.count))
         let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: String])
+        XCTAssertNil(decoded["error"], text)
         XCTAssertEqual(decoded["exportType"], "function", text)
         XCTAssertEqual(decoded["href"], page.absoluteString, text)
     }
