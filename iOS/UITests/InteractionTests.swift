@@ -151,7 +151,15 @@ final class FreshDocumentPreviewTests: XCTestCase {
         visible(eventName)
 
         tap("Documento")
+        func documentState(_ stage: String) {
+            let blank = button("Hoja en blanco")
+            let loading = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Abriendo plantilla")).firstMatch
+            let recovery = app.webViews.staticTexts["No se pudo mostrar Nexo"]
+            print("Nexo PDF transition \(stage): blank=\(blank.exists), frame=\(blank.exists ? String(describing: blank.frame) : "absent"), save=\(button("Guardar").exists), loading=\(loading.exists), recovery=\(recovery.exists)\n\(app.debugDescription)")
+        }
+        documentState("before blank-page tap")
         tap("Hoja en blanco")
+        documentState("after blank-page tap")
         tap("Guardar")
         // Observe the committed-save notification immediately; never retry Save.
         visible("Plantilla guardada")

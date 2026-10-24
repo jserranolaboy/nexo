@@ -1,6 +1,7 @@
 import Foundation
 import PDFKit
 import UIKit
+import WebKit
 import XCTest
 import NexoCore
 import NexoKit
@@ -8,6 +9,59 @@ import NexoKit
 
 @MainActor
 final class IOSPersistenceTests: XCTestCase {
+    /// Diagnose bundled module loading separately from the UI test's real tap.
+    /// This WebView has no native bridge, account, synthetic seed, or user actions.
+    func testBundledStudioModuleLoadsThroughApplicationScheme() throws {
+        let root = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("Web", isDirectory: true))
+        let assets = try FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("assets"), includingPropertiesForKeys: nil)
+        let modules = assets.filter { $0.lastPathComponent.hasPrefix("Studio-") && $0.pathExtension == "js" }
+        guard modules.count == 1 else {
+            XCTFail("The built application must contain exactly one Studio module")
+            return
+        }
+        let module = try XCTUnwrap(modules.first)
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.setURLSchemeHandler(BundleScheme(), forURLScheme: "valentina")
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 393, height: 793), configuration: configuration)
+        let navigation = BundledPageNavigation()
+        web.navigationDelegate = navigation
+        defer { web.stopLoading(); web.navigationDelegate = nil }
+        let page = try XCTUnwrap(URL(string: "valentina://experience/index.html"))
+        web.load(URLRequest(url: page))
+        guard XCTWaiter.wait(for: [navigation.finished], timeout: 20) == .completed else {
+            XCTFail("Bundled application page did not finish loading")
+            return
+        }
+        if let error = navigation.error { throw error }
+        guard web.url == page else { XCTFail("Unexpected bundled page URL"); return }
+
+        let imported = XCTestExpectation(description: "Bundled Studio module evaluated")
+        var evaluation: Result<Any, Error>?
+        web.callAsyncJavaScript("""
+            let timer;
+            try {
+              const module = await Promise.race([
+                import(moduleURL),
+                new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Studio module import timed out')), 15000); })
+              ]);
+              return JSON.stringify({ exportType: typeof module.DocumentStudio, href: location.href });
+            } finally { clearTimeout(timer); }
+            """, arguments: ["moduleURL": "valentina://experience/assets/\(module.lastPathComponent)"], in: nil, in: .page) { result in
+                evaluation = result
+                imported.fulfill()
+            }
+        guard XCTWaiter.wait(for: [imported], timeout: 20) == .completed else {
+            XCTFail("Bundled Studio evaluation did not complete")
+            return
+        }
+        let value = try XCTUnwrap(evaluation).get()
+        let text = try XCTUnwrap(value as? String)
+        let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: String])
+        XCTAssertEqual(decoded["exportType"], "function", text)
+        XCTAssertEqual(decoded["href"], page.absoluteString, text)
+    }
+
     func testDraftSurvivesRestartWithoutSavingOrUploadingTemplate() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -45,5 +99,27 @@ final class IOSPersistenceTests: XCTestCase {
         XCTAssertTrue(text.contains("Lista de asistencia"))
         XCTAssertTrue(text.contains("Nota de la persona 55"))
         XCTAssertNotNil(pdf.page(at: 0)?.thumbnail(of: CGSize(width: 612, height: 792), for: .mediaBox).pngData())
+    }
+}
+
+@MainActor
+private final class BundledPageNavigation: NSObject, WKNavigationDelegate {
+    let finished = XCTestExpectation(description: "Bundled application page loaded")
+    private(set) var error: Error?
+    private var completed = false
+    private func finish(_ error: Error? = nil) {
+        guard !completed else { return }
+        completed = true
+        self.error = error
+        finished.fulfill()
+    }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { finish() }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { finish(error) }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { finish(error) }
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+        let url = navigationAction.request.url
+        let bundled = url?.scheme == "valentina" && url?.host == "experience"
+        if !bundled { finish(URLError(.unsupportedURL)) }
+        decisionHandler(bundled ? .allow : .cancel)
     }
 }
