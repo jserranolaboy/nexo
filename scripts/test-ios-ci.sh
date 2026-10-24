@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# This installs the unit-test host only in a NEW disposable hosted simulator.
+# This installs test apps only in a NEW disposable hosted simulator per invocation.
 # Never target a user's Mac, existing simulator, physical device, or live account.
 [[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_ENVIRONMENT:-}" == github-hosted && "${RUNNER_OS:-}" == macOS ]] || {
   echo "This test entry point requires a GitHub-hosted macOS runner." >&2
@@ -40,7 +40,19 @@ cleanup_device() {
   echo "Verified job-owned simulator removed: $owned"
 }
 if [[ "${1:-}" == --cleanup && $# == 1 ]]; then cleanup_device; exit; fi
-[[ $# == 0 ]] || { echo "Unsupported arguments." >&2; exit 1; }
+scheme=Nexo
+selection=(-only-testing:NexoTests -skip-testing:NexoTests/LiveDriveTests)
+device_name='Nexo CI unit tests'
+if [[ "${1:-}" == --ui-smoke && $# == 1 ]]; then
+  scheme=NexoInteraction
+  selection=(-only-testing:NexoUITests/FreshInstallSmokeTests/testSpaceAndPersonPersistAcrossRelaunch)
+  device_name='Nexo CI fresh-install smoke'
+  # xcodebuild strips TEST_RUNNER_ when forwarding this test-only safety marker.
+  export TEST_RUNNER_NEXO_FRESH_SIMULATOR_SMOKE=1
+elif [[ $# != 0 ]]; then
+  echo "Unsupported arguments." >&2
+  exit 1
+fi
 [[ ! -e "$state_file" ]] || { echo "An owned simulator record already exists; clean it before another run." >&2; exit 1; }
 
 runtime=com.apple.CoreSimulator.SimRuntime.iOS-18-5
@@ -79,7 +91,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-device=$(xcrun simctl create 'Nexo CI unit tests' "$device_type" "$runtime")
+device=$(xcrun simctl create "$device_name" "$device_type" "$runtime")
 valid_device "$device" || {
   device=''
   echo "simctl did not return a valid newly created device ID." >&2
@@ -88,15 +100,15 @@ valid_device "$device" || {
 printf '%s\n' "$device" > "$state_file"
 echo "Created job-owned simulator $device"
 
-# NexoTests uses an app test host. It may access ONLY this fresh simulator's empty
-# app container/Keychain. No OAuth configuration, provisioning, UI suite, or seed script.
-xcodebuild -project iOS/Nexo.xcodeproj -scheme Nexo -sdk iphonesimulator \
+# Both selections use ONLY this fresh simulator's empty app container/Keychain.
+# The UI selection is one fresh-install test, never the old seeded interaction suite.
+# No OAuth configuration, provisioning, or seed script.
+xcodebuild -project iOS/Nexo.xcodeproj -scheme "$scheme" -sdk iphonesimulator \
   -destination "platform=iOS Simulator,id=$device" -destination-timeout 120 \
   -derivedDataPath "$RUNNER_TEMP/nexo-ios-tests" \
   -clonedSourcePackagesDirPath "$RUNNER_TEMP/nexo-ios-packages" \
   -onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution -skipPackageUpdates \
-  -parallel-testing-enabled NO -only-testing:NexoTests \
-  -skip-testing:NexoTests/LiveDriveTests \
+  -parallel-testing-enabled NO "${selection[@]}" \
   CODE_SIGNING_ALLOWED=NO test
 
 git diff --exit-code -- iOS/Nexo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved

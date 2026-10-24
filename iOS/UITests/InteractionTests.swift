@@ -1,5 +1,70 @@
 import XCTest
 
+/// Only the hosted CI helper selects this test, on a NEW account-free simulator.
+/// It uses the real bundled WebView and bridge, with no seed or test app hooks.
+@MainActor
+final class FreshInstallSmokeTests: XCTestCase {
+    func testSpaceAndPersonPersistAcrossRelaunch() throws {
+        #if !targetEnvironment(simulator)
+        throw XCTSkip("Fresh-install mutations require a disposable simulator")
+        #endif
+        continueAfterFailure = false
+        guard ProcessInfo.processInfo.environment["NEXO_FRESH_SIMULATOR_SMOKE"] == "1" else {
+            XCTFail("Use the hosted CI helper to create a new isolated simulator")
+            return
+        }
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(es)", "-AppleLocale", "es_PR"]
+        defer { app.terminate() }
+        let suffix = String(UUID().uuidString.prefix(8))
+        let spaceName = "Nexo CI Space \(suffix)"
+        let personName = "Nexo CI Person \(suffix)"
+
+        func visible(_ label: String, file: StaticString = #filePath, line: UInt = #line) {
+            let element = app.webViews.descendants(matching: .any)
+                .matching(NSPredicate(format: "label == %@", label)).firstMatch
+            XCTAssertTrue(element.waitForExistence(timeout: 15), "Missing \(label)\n\(app.debugDescription)", file: file, line: line)
+        }
+        func tap(_ label: String, file: StaticString = #filePath, line: UInt = #line) {
+            let button = app.webViews.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 15), "Missing button \(label)\n\(app.debugDescription)", file: file, line: line)
+            button.tap()
+        }
+        func type(_ value: String, into label: String) {
+            let field = app.webViews.textFields.matching(NSPredicate(format: "label == %@", label)).firstMatch
+            XCTAssertTrue(field.waitForExistence(timeout: 15), app.debugDescription)
+            field.tap()
+            field.typeText(value)
+            XCTAssertEqual(field.value as? String, value)
+        }
+
+        app.launch()
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 30))
+        // Fail before any mutation if this is not the ordinary empty-workspace screen.
+        tap("Crear espacio")
+        type(spaceName, into: "Nombre del espacio")
+        tap("Crear")
+        visible(spaceName)
+        for area in ["Encuentros", "Personas", "Documentos"] { visible(area) }
+        tap("Personas")
+        visible("Sin personas")
+        tap("Nueva persona")
+        type(personName, into: "Nombre completo")
+        tap("Añadir")
+        visible(personName)
+
+        // A new app process must load both native mutations from its own container.
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 30))
+        visible(spaceName)
+        XCTAssertFalse(app.webViews.buttons["Crear espacio"].exists)
+        tap("Personas")
+        visible(personName)
+        XCTAssertFalse(app.webViews.staticTexts["Sin personas"].exists)
+    }
+}
+
 /// Run only on a simulator populated with synthetic data using seed-simulator.mjs.
 /// These tests do not connect an account or upload files.
 @MainActor

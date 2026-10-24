@@ -60,7 +60,7 @@ jobs:
           xcrun lipo "$bin_dir/Nexo" -verify_arch arm64 x86_64
 
   ios:
-    name: Disposable iOS simulator unit tests
+    name: Disposable iOS simulator tests
     runs-on: macos-15
     timeout-minutes: 30
     defaults:
@@ -102,6 +102,9 @@ jobs:
 
       - name: Run synthetic unit tests on a new disposable simulator
         run: bash scripts/test-ios-ci.sh
+
+      - name: Verify fresh-install persistence through the iOS interface
+        run: bash scripts/test-ios-ci.sh --ui-smoke
 
       - name: Remove any remaining job-owned simulator
         if: always()
