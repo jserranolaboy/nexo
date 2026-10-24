@@ -6,7 +6,6 @@ El archivo local se llama `nexo-reconstruction-v1.json`. Los instantes se guarda
 
 La asistencia es `presentes / (presentes + ausentes)`. Si no hay registros computables, el resultado es nulo, no cero. Quien no está en la lista no recibe una ausencia. Duplicar un encuentro crea filas pendientes y no copia las marcas anteriores.
 
-<<<<<<< HEAD
 La sugerencia de voluntariado ordena a quien ya está interesado, según participaciones completadas previas del mismo ámbito. Si el encuentro tiene categoría, el ámbito es esa categoría. La elección es un comando aparte. El cupo se rechaza al elegir, al importar y al combinar. Un encuentro cancelado, sin cupo, una persona inactiva, otro espacio o un encuentro fuera del período también se rechazan, y ese rechazo no cambia el archivo.
 
 La colaboración es opcional y no tiene cuenta ni carpeta. Si el puerto de sincronización falla después de guardar, el archivo local permanece. Un conflicto conserva las alternativas y una escritura vieja no las reemplaza. Restaurar deja la sincronización en pausa y no encola una subida. Elegir una alternativa deja solo esa en el archivo activo; en pausa, la elección no encola una subida.
@@ -60,7 +59,25 @@ node --experimental-strip-types src/cli.ts show --directory /tmp/nexo-synthetic 
 
 `npm test` también ejecuta ese recorrido. Los datos son ficticios. No usa Drive, cuentas ni documentos reales.
 
-Las compilaciones de la app Apple no corren aquí. Siguen dependiendo de un Mac con Xcode, como describe el README de la raíz.
+El cliente legado sigue dependiendo de un Mac con Xcode, como describe el README de la raíz. Este paquete no lo sustituye.
+
+## Adaptador de Mac
+
+`apple/` no tiene reglas de dominio. El ejecutable `nexo-adapter` llama a `src/cli.ts`. Un proceso ejecuta `journey` y otro `show`. El directorio es temporal y los datos son los sintéticos del núcleo. No abre Application Support, no firma con Developer ID y no publica.
+
+`xcode-select` puede seguir en Command Line Tools. La compilación usa Xcode por `DEVELOPER_DIR`:
+
+```sh
+make test-adapter
+```
+
+Eso equivale a `xcodebuild -scheme nexo-adapter-Package -destination 'platform=macOS'` dentro de `apple/`, con datos derivados en `/tmp/nexo-adapter-dd`.
+
+`NexoAdapterIOS` es la misma orden para iPhone e iPad. Compila contra el SDK del simulador y no lanza Node. Si el runtime no está instalado, el esquema solo se compila:
+
+```sh
+make build-adapter-ios
+```
 
 ## Autoridad
 
