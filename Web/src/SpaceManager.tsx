@@ -139,7 +139,7 @@ export function SpaceManager({
               disabled={disabled || !!selected.deletedAt || link(selected.id)?.canEdit === false}
               onClick={() => void change(selected, true)}
             >
-              {saving ? 'Eliminando…' : tr('Mover a Papelera')}
+              {saving ? tr('Eliminando…') : tr('Mover a Papelera')}
             </button>
           </div>
         </div>

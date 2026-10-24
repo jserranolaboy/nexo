@@ -694,5 +694,6 @@ public enum NexoLocale {
         "Restaura su espacio desde Papelera o importa una copia que lo incluya antes de reintentar.": "Restore its space from Trash or import a backup containing it before trying again.",
         "Conectando…": "Connecting…",
         "Preparando…": "Preparing…",
+        "Eliminando…": "Deleting…",
     ]
 }

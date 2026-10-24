@@ -34,3 +34,9 @@ describe('Drive pending labels', () => {
     expect(translate(spanish, 'es')).toBe(spanish)
   })
 })
+
+
+it('translates the space-removal pending state without changing Spanish', () => {
+  expect(translate('Eliminando…', 'en')).toBe('Deleting…')
+  expect(translate('Eliminando…', 'es')).toBe('Eliminando…')
+})

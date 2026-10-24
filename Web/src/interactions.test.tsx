@@ -152,6 +152,7 @@ import { WorkspaceProvider } from './workspace'
 import { EventForm, SimpleForm } from './forms'
 import { App } from './App'
 import { DrivePanel } from './DrivePanel'
+import { SpaceManager } from './SpaceManager'
 
 type Element = ReactElement<Record<string, any>>
 function find(tree: unknown, match: (element: Element) => boolean): Element {
@@ -2589,5 +2590,40 @@ describe('Drive conflict opposite page callbacks', () => {
       src: acceptedBoth ? 'page-3' : 'page-1',
       alt: tr('Plantilla, página {0}', acceptedBoth ? 3 : 1),
     })
+  })
+})
+
+
+describe('Space removal localization', () => {
+  it.each(['resolve', 'reject'] as const)('keeps pending removal in English without translating user data on %s', async (outcome) => {
+    const snapshot = fixture()
+    snapshot.organizations[0].name = 'Conectando…'
+    let resolve!: (value: unknown) => void, reject!: (error: Error) => void
+    const mutate = vi.fn(() => new Promise((done, fail) => { resolve = done; reject = fail }))
+    const changed = vi.fn(), notify = vi.fn()
+    test.context = { snapshot, demo: true, busy: false, driveBusy: false, drive: emptyDrive, mutate, notify }
+    const hooks = new test.Hooks()
+    const render = () => hooks.render(() => SpaceManager({ close: vi.fn(), open: vi.fn(), create: vi.fn(), changed }))
+    find(render(), el => el.props.className === 'icon-button space-delete').props.onClick()
+    const button = () => find(render(), el => el.props.className === 'button danger-fill')
+    expect(button().props.children).toBe('Move to Trash')
+    button().props.onClick()
+    expect(button().props.children).toBe('Deleting…')
+    expect(button().props.disabled).toBe(true)
+    expect(mutate).toHaveBeenCalledExactlyOnceWith({ kind: 'setOrganizationDeleted', organizationID: 'org', deleted: true, expectedDeleted: false, expectedName: 'Conectando…' })
+    if (outcome === 'resolve') {
+      resolve(snapshot)
+      await flush()
+      expect(changed).toHaveBeenCalledExactlyOnceWith('org', true)
+      expect(notify).toHaveBeenCalledWith('Space moved to Trash', false, expect.any(Function))
+    } else {
+      reject(new Error('Conectando…'))
+      await flush()
+      expect(button().props.children).toBe('Move to Trash')
+      expect(button().props.disabled).toBe(false)
+      expect(find(render(), el => el.type === 'h3').props.children).toBe('Conectando…')
+      expect(find(render(), el => el.props.role === 'alert').props.children).toBe('Conectando…')
+      expect(changed).not.toHaveBeenCalled()
+    }
   })
 })
