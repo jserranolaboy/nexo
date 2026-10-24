@@ -89,6 +89,7 @@ for architecture in arm64 x86_64; do
     xcrun vtool -arch "$architecture" -show-build "$app/Contents/MacOS/Nexo" > "$work/$architecture-build.txt"
     xcrun otool -arch "$architecture" -L "$app/Contents/MacOS/Nexo" > "$work/$architecture-libraries.txt"
     xcrun otool -arch "$architecture" -l "$app/Contents/MacOS/Nexo" > "$work/$architecture-loads.txt"
+    printf 'Validate packaged executable runtime paths (%s)\n' "$architecture"
     python3 "$helper" binary "$work/$architecture-build.txt" "$work/$architecture-libraries.txt" "$work/$architecture-loads.txt"
 done
 /usr/bin/ditto "$source/LICENSE" "$work/image/LICENSE"

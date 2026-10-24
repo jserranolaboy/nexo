@@ -104,7 +104,8 @@ def binary_report(vtool, otool, loads):
         require(value.startswith(('/System/Library/', '/usr/lib/')) or
                 re.fullmatch(r'@rpath/libswift[A-Za-z0-9_]+\.dylib', value), 'Non-system runtime dependency: ' + value)
     rpaths = re.findall(r'cmd LC_RPATH\s+cmdsize \d+\s+path (.+?) \(offset', loads)
-    require(all(value in ['/usr/lib/swift', '@executable_path/../Frameworks'] for value in rpaths), 'Nonportable runtime search path')
+    require(all(value in ['/usr/lib/swift', '@executable_path/../Frameworks'] for value in rpaths),
+            'Nonportable runtime search path; observed LC_RPATH values: ' + repr(rpaths))
     if any(value.startswith('@rpath/') for value in dependencies):
         require('/usr/lib/swift' in rpaths, 'Swift runtime search path missing')
 

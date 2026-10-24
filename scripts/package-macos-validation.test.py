@@ -263,6 +263,17 @@ class PackageValidationTests(unittest.TestCase):
         for data in bad:
             with self.subTest(data=data), self.assertRaises(ValueError): p.binary_report(*data)
 
+    def test_rejected_runtime_paths_report_observed_values_without_accepting_them(self):
+        paths = ['/usr/lib/swift', '@executable_path', '/Users/runner/synthetic-build',
+                 '/Applications/Xcode.app/Contents/Developer/synthetic-runtime']
+        loads = ''.join('cmd LC_RPATH\ncmdsize 64\npath ' + value + ' (offset 12)\n' for value in paths)
+        with self.assertRaises(ValueError) as caught:
+            p.binary_report('platform MACOS\nminos 15.0\n',
+                            'Nexo:\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1.0.0)\n',
+                            loads)
+        self.assertEqual(str(caught.exception),
+                         'Nonportable runtime search path; observed LC_RPATH values: ' + repr(paths))
+
     def image_info(self):
         image=self.root/'image.dmg';image.write_bytes(b'owned')
         mount=self.root/'mount';mount.mkdir()
