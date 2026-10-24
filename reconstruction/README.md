@@ -6,6 +6,17 @@ El archivo local se llama `nexo-reconstruction-v1.json`. Los instantes se guarda
 
 La asistencia es `presentes / (presentes + ausentes)`. Si no hay registros computables, el resultado es nulo, no cero. Quien no está en la lista no recibe una ausencia. Duplicar un encuentro crea filas pendientes y no copia las marcas anteriores.
 
+La colaboración es opcional y no tiene cuenta ni carpeta. Si el puerto de sincronización falla después de guardar, el archivo local permanece. Un conflicto conserva las alternativas y una escritura vieja no las reemplaza. Restaurar deja la sincronización en pausa y no encola una subida.
+
+## Colaboración
+
+Recorrido sintético, y lectura en otro proceso:
+
+```sh
+node --experimental-strip-types src/cli.ts collaborate --directory /tmp/nexo-colaboracion --lang es
+node --experimental-strip-types src/cli.ts collaborate-show --directory /tmp/nexo-colaboracion --lang en
+```
+
 ## Comandos
 
 Hace falta Node `22.23.4`. Desde este directorio:

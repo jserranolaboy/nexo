@@ -1,13 +1,16 @@
+import { describeCollaboration, runCollaborationJourney } from './collaboration-journey.ts'
 import { describeJourney, runFirstJourney } from './journey.ts'
 
 const messages = {
   es: {
-    usage: 'Uso: journey --directory DIR [--lang es|en] | show --directory DIR [--lang es|en]',
+    usage: 'Uso: journey | collaborate | show | collaborate-show --directory DIR [--lang es|en]',
     saved: 'Espacio sintético guardado. La asistencia queda en el archivo local.',
+    kept: 'Guardado local conservado. El puerto de sincronización falló después.',
   },
   en: {
-    usage: 'Usage: journey --directory DIR [--lang es|en] | show --directory DIR [--lang es|en]',
+    usage: 'Usage: journey | collaborate | show | collaborate-show --directory DIR [--lang es|en]',
     saved: 'Synthetic space saved. Attendance remains in the local file.',
+    kept: 'Local save kept. The sync port failed afterwards.',
   },
 } as const
 
@@ -21,6 +24,11 @@ if (!parsed.command || !parsed.directory) {
   process.stdout.write(`${copy.saved}\n`)
 } else if (parsed.command === 'show') {
   process.stdout.write(`${describeJourney(parsed.directory, parsed.lang)}\n`)
+} else if (parsed.command === 'collaborate') {
+  const portError = runCollaborationJourney(parsed.directory)
+  process.stdout.write(`${copy.kept} ${portError}\n`)
+} else if (parsed.command === 'collaborate-show') {
+  process.stdout.write(`${describeCollaboration(parsed.directory, parsed.lang)}\n`)
 } else {
   process.stderr.write(`${copy.usage}\n`)
   process.exitCode = 1

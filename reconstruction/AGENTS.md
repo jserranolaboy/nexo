@@ -9,7 +9,7 @@ Este archivo manda dentro de `reconstruction/`. El `AGENTS.md` de la raíz remit
 - La zona del espacio es un dato. La pertenencia a un período compara instantes en un intervalo semiabierto.
 - Una asistencia sin registros computables es nula, no `0 %`.
 - Si un texto no cabe, se informa entero. No se recorta.
-- Un guardado local ya hecho no se convierte en fallo porque después falle Drive.
-- Una restauración no añade subidas.
+- Un guardado local ya hecho no se convierte en fallo porque después falle el puerto de sincronización. No uses OAuth, Drive real ni cuentas.
+- Una restauración deja la sincronización en pausa y no encola una subida. Un conflicto conserva las alternativas.
 - Las pruebas usan datos sintéticos y directorios temporales.
 - La CI de Ubuntu cubre este paquete. No afirmes que la app de Apple compiló si no se ejecutó en un Mac.
