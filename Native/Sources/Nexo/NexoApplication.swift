@@ -105,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 else if case AttendancePDFError.textDoesNotFit = error { text = NexoLocale.text("El texto no cabe en la página. Muévelo hacia arriba, amplía su ancho o reduce su tamaño.") }
                 else if case AttendancePDFError.headerTitleDoesNotFit = error { text = NexoLocale.text("El título no cabe. Acórtalo o usa un bloque de texto.") }
                 else if case AttendancePDFError.footerTextDoesNotFit = error { text = NexoLocale.text("El pie de página no cabe. Acórtalo o usa un bloque de texto.") }
+                else if case AttendancePDFError.columnHeadingDoesNotFit(let index) = error { text = NexoLocale.text("El título de la columna {0} no cabe. Acórtalo, quita columnas o elige una página más ancha.", index) }
                 else { text = error.localizedDescription }
                 replyHandler(nil, NexoLocale.text(text))
             }

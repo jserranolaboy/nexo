@@ -25,6 +25,121 @@ final class AttendancePDFTests: XCTestCase {
         return data as Data
     }
 
+    private func assertColumnHeadingRefusalPreservesOutputs(
+        _ fixture: FreeTextFixture, expectedIndex: Int, entries: [AttendanceEntry] = [],
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nexo-column-heading-refusal-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let absent = directory.appendingPathComponent("absent.pdf")
+        let existing = directory.appendingPathComponent("existing.pdf")
+        let original = Data("Existing destination must remain byte-for-byte unchanged".utf8)
+        try original.write(to: existing)
+        for mode in [AttendancePDFMode.blank, .completed] {
+            for destination in [absent, existing] {
+                XCTAssertThrowsError(try AttendancePDF.render(
+                    organization: fixture.organization, event: fixture.event, entries: entries,
+                    template: fixture.template, mode: mode, to: destination), file: file, line: line
+                ) { error in
+                    guard case AttendancePDFError.columnHeadingDoesNotFit(let index) = error else {
+                        return XCTFail("Unexpected error: \(error)", file: file, line: line)
+                    }
+                    XCTAssertEqual(index, expectedIndex, file: file, line: line)
+                }
+                XCTAssertFalse(FileManager.default.fileExists(atPath: absent.path),
+                               "Rejected export must not create a destination", file: file, line: line)
+                XCTAssertEqual(try Data(contentsOf: existing), original,
+                               "Rejected export must not truncate an existing destination", file: file, line: line)
+            }
+        }
+    }
+
+    private func assertColumnHeadingText(
+        _ fixture: FreeTextFixture, expected: [String], absent: [String] = [],
+        language: String = "es", selectedPage: Int = 0, pageSize: CGSize? = nil,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        for mode in [AttendancePDFMode.blank, .completed] {
+            let output = FileManager.default.temporaryDirectory
+                .appendingPathComponent("nexo-column-heading-control-\(UUID().uuidString).pdf")
+            defer { try? FileManager.default.removeItem(at: output) }
+            try AttendancePDF.render(organization: fixture.organization, event: fixture.event, entries: [],
+                                     template: fixture.template, mode: mode, language: language, to: output)
+            let document = try XCTUnwrap(PDFDocument(url: output), file: file, line: line)
+            XCTAssertEqual(document.pageCount, selectedPage + 1, file: file, line: line)
+            let page = try XCTUnwrap(document.page(at: selectedPage), file: file, line: line)
+            if let pageSize { XCTAssertEqual(page.bounds(for: .mediaBox).size, pageSize, file: file, line: line) }
+            let text = try XCTUnwrap(page.string, file: file, line: line)
+            let diagnostic = "\(mode), \(language): \(String(reflecting: text))"
+            for word in expected { XCTAssertTrue(text.contains(word), diagnostic, file: file, line: line) }
+            for word in absent { XCTAssertFalse(text.contains(word), diagnostic, file: file, line: line) }
+            for index in 0..<selectedPage {
+                let preceding = document.page(at: index)?.string ?? ""
+                for word in expected { XCTAssertFalse(preceding.contains(word), file: file, line: line) }
+            }
+        }
+    }
+
+    func testShortParticipantColumnMarkersRemainExtractable() throws {
+        let fixture = try validatedFreeTextFixture([], labels: ["participant": "Beginmarker Endmarker"])
+        try assertColumnHeadingText(fixture, expected: ["Beginmarker", "Endmarker"])
+    }
+
+    func testLongColumnHeadingRefusesBeforeOutputAndReportsFirstColumn() throws {
+        let label = "Beginmarker " + String(repeating: "planning ", count: 10) + "Endmarker"
+        XCTAssertEqual(label.count, 111)
+        let fixture = try validatedFreeTextFixture([], labels: ["participant": label, "signature": label])
+        try assertColumnHeadingRefusalPreservesOutputs(fixture, expectedIndex: 1)
+    }
+
+    func testColumnHeadingOverflowUsesDisplayedOrder() throws {
+        let label = "Beginmarker " + String(repeating: "planning ", count: 10) + "Endmarker"
+        let orders: [[TemplateColumn]] = [
+            [.participant, .signature, .present, .notes],
+            [.participant, .present, .signature, .notes]
+        ]
+        for (offset, columns) in orders.enumerated() {
+            let fixture = try validatedFreeTextFixture([], columns: columns,
+                labels: ["participant": "N", "signature": label, "present": "P", "notes": "Notes"])
+            try assertColumnHeadingRefusalPreservesOutputs(fixture, expectedIndex: offset + 2)
+        }
+    }
+
+    func testColumnHeadingsPreserveTrimmingAndLocalizedFallbacks() throws {
+        let fixture = try validatedFreeTextFixture([], columns: [.participant, .present, .signature],
+            labels: ["participant": " \nBeginmarker Endmarker\n ", "present": " \t\n", "signature": ""])
+        try assertColumnHeadingText(fixture, expected: ["Beginmarker", "Endmarker", "Presente", "Firma"])
+        try assertColumnHeadingText(fixture, expected: ["Beginmarker", "Endmarker", "Present", "Signature"],
+                                    absent: ["Presente", "Firma"], language: "en")
+    }
+
+    func testInactiveOversizedColumnLabelDoesNotBlockOrAppearInExport() throws {
+        let unused = String(repeating: "planning ", count: 12) + "Inactiveend"
+        let fixture = try validatedFreeTextFixture([],
+            labels: ["participant": "Beginmarker Endmarker", "notes": unused])
+        XCTAssertFalse(fixture.template.columns.contains(.notes))
+        try assertColumnHeadingText(fixture, expected: ["Beginmarker", "Endmarker"], absent: ["Inactiveend"])
+        XCTAssertEqual(fixture.template.columnLabels?["notes"], unused)
+    }
+
+    func testColumnHeadingUsesSelectedImportedPageWidth() throws {
+        let wide = CGSize(width: 920, height: 792)
+        let narrow = CGSize(width: 260, height: 792)
+        let columns: [TemplateColumn] = [.participant, .signature, .notes]
+        let labels = ["participant": "Beginmarker Endmarker", "signature": "F", "notes": "N"]
+        let rejected = try validatedFreeTextFixture([],
+            background: backgroundPDF(pageSizes: [wide, narrow]), listPageIndex: 1,
+            columns: columns, labels: labels)
+        try assertColumnHeadingRefusalPreservesOutputs(rejected, expectedIndex: 1)
+        let accepted = try validatedFreeTextFixture([],
+            background: backgroundPDF(pageSizes: [narrow, wide]), listPageIndex: 1,
+            columns: columns, labels: labels)
+        try assertColumnHeadingText(accepted, expected: ["Beginmarker", "Endmarker"],
+                                    selectedPage: 1, pageSize: wide)
+    }
+
     private typealias HeaderFooterFixture = (
         organization: Organization, event: ActivityEvent, template: DocumentTemplate
     )
@@ -238,13 +353,16 @@ final class AttendancePDFTests: XCTestCase {
     )
 
     private func validatedFreeTextFixture(
-        _ blocks: [TemplateTextBlock], background: Data? = nil, listPageIndex: Int? = nil
+        _ blocks: [TemplateTextBlock], background: Data? = nil, listPageIndex: Int? = nil,
+        columns: [TemplateColumn] = [.participant, .present, .absent, .excused, .signature],
+        labels: [String: String]? = nil
     ) throws -> FreeTextFixture {
         let organization = Organization(name: "Synthetic PDF workspace")
         let component = ActivityComponent(organizationID: organization.id, name: "Synthetic component")
         let event = ActivityEvent(organizationID: organization.id, title: "Synthetic event",
                                   startsAt: .now, componentID: component.id)
         let template = DocumentTemplate(organizationID: organization.id, name: "Free-text policy",
+                                        columns: columns, columnLabels: labels,
                                         textBlocks: blocks, backgroundPDFData: background,
                                         listPageIndex: listPageIndex)
         var snapshot = WorkspaceSnapshot()
@@ -326,17 +444,25 @@ final class AttendancePDFTests: XCTestCase {
         let text = "First line\nSecond line\nThird line\nFourth line\nSELECTEDPAGEEND"
         let letter = CGSize(width: 612, height: 792)
         // The second, shorter page is selected, not the first page or the default Letter size.
-        let shortPage = try validatedFreeTextFixture([
+        let originalShortPage = try validatedFreeTextFixture([
             TemplateTextBlock(text: text, x: 46, y: 458, width: 220, fontSize: 12)
         ], background: try backgroundPDF(pageSizes: [letter, CGSize(width: 420, height: 500)]),
            listPageIndex: 1)
+        // Retain the original default-heading input, rather than hiding its new refusal.
+        try assertColumnHeadingRefusalPreservesOutputs(originalShortPage, expectedIndex: 2)
+        let labels = ["participant": "N", "present": "P", "absent": "A", "excused": "E", "signature": "F"]
+        let shortPage = try validatedFreeTextFixture(originalShortPage.template.textBlocks ?? [],
+            background: originalShortPage.template.backgroundPDFData, listPageIndex: 1, labels: labels)
         try assertFreeTextRefusalPreservesOutputs(shortPage)
 
         // Conversely, a taller selected page must accept content below the default page's bottom.
-        let tallPage = try validatedFreeTextFixture([
+        let originalTallPage = try validatedFreeTextFixture([
             TemplateTextBlock(text: text, x: 46, y: 800, width: 220, fontSize: 12)
         ], background: try backgroundPDF(pageSizes: [letter, CGSize(width: 420, height: 1000)]),
            listPageIndex: 1)
+        try assertColumnHeadingRefusalPreservesOutputs(originalTallPage, expectedIndex: 2)
+        let tallPage = try validatedFreeTextFixture(originalTallPage.template.textBlocks ?? [],
+            background: originalTallPage.template.backgroundPDFData, listPageIndex: 1, labels: labels)
         for mode in [AttendancePDFMode.blank, .completed] {
             let file = FileManager.default.temporaryDirectory
                 .appendingPathComponent("nexo-imported-free-text-\(UUID().uuidString).pdf")
@@ -570,11 +696,15 @@ final class AttendancePDFTests: XCTestCase {
 
         let entry = AttendanceEntry(eventID: event.id, memberID: UUID(), status: .pending,
                                     memberNameSnapshot: String(repeating: "Nombre extenso ", count: 35))
-        let template = DocumentTemplate(organizationID: organization.id, name: "Página corta",
+        var template = DocumentTemplate(organizationID: organization.id, name: "Página corta",
                                         backgroundPDFData: try Data(contentsOf: sourceFile),
                                         tableTopOffset: 190)
         let shortEntry = AttendanceEntry(eventID: event.id, memberID: UUID(), status: .present,
                                          memberNameSnapshot: "Ana")
+        try assertColumnHeadingRefusalPreservesOutputs(
+            (organization, event, template), expectedIndex: 2, entries: [shortEntry])
+        // Only shorten headings; keep the original page, row widths, and tall-row assertion.
+        template.columnLabels = ["participant": "N", "present": "P", "absent": "A", "excused": "E", "signature": "F"]
         try AttendancePDF.render(organization: organization, event: event,
                                  entries: [shortEntry], template: template,
                                  mode: .blank, to: outputFile)

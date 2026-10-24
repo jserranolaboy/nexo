@@ -22,6 +22,8 @@ public enum AttendancePDFError: Error, Sendable {
     case textDoesNotFit
     case headerTitleDoesNotFit
     case footerTextDoesNotFit
+    /// One-based position in the template's displayed column order.
+    case columnHeadingDoesNotFit(Int)
 }
 
 /// The paper editor and the exported PDF use these same row heights and page breaks.
@@ -138,6 +140,23 @@ public enum AttendancePDF {
         try validateFixedText(template.footerText, in: footerTextRect(pageWidth: page.width),
                               font: .systemFont(ofSize: 9), color: mutedInk,
                               error: .footerTextDoesNotFit)
+        // Resolve only displayed headings, once, so preflight and every rendered
+        // page use the same trimmed custom label or localized fallback.
+        let headings = template.columns.map {
+            columnHeading($0, labels: template.columnLabels, language: language)
+        }
+        let accent = color(template.accentHex)
+        let titleColor = headerTextColor(for: accent)
+        var headingX = margin
+        for (index, pair) in zip(template.columns, widths).enumerated() {
+            let (column, width) = pair
+            try validateFixedText(headings[index],
+                                  in: columnHeadingRect(x: headingX, bottom: tableTop - 30, width: width),
+                                  font: .systemFont(ofSize: 9, weight: .semibold), color: titleColor,
+                                  alignment: column == .participant ? .left : .center,
+                                  error: .columnHeadingDoesNotFit(index + 1))
+            headingX += width
+        }
         // Preflight every overlay before opening the destination, including later
         // blocks, so refusing an overflowing draft cannot truncate an existing PDF.
         let textLayouts = try (template.textBlocks ?? []).filter { !$0.text.isEmpty }.map { block in
@@ -171,8 +190,8 @@ public enum AttendancePDF {
 
             drawHeader(template, page: page)
             var y = drawTableHeader(context, columns: template.columns, widths: widths,
-                                    accent: color(template.accentHex), labels: template.columnLabels,
-                                    top: tableTop, pageWidth: page.width, language: language)
+                                    accent: accent, headings: headings,
+                                    top: tableTop, pageWidth: page.width)
             if sorted.isEmpty {
                 y -= max(CGFloat(template.rowHeight), 34)
                 drawRow(context, entry: nil, columns: template.columns, widths: widths,
@@ -266,10 +285,30 @@ public enum AttendancePDF {
         }
     }
 
+    private static func columnHeading(
+        _ column: TemplateColumn, labels: [String: String]?, language: String
+    ) -> String {
+        let defaultTitle: String
+        switch column {
+        case .participant: defaultTitle = language == "es" ? "Nombre" : "Name"
+        case .present: defaultTitle = language == "es" ? "Presente" : "Present"
+        case .absent: defaultTitle = language == "es" ? "Ausente" : "Absent"
+        case .excused: defaultTitle = language == "es" ? "Excusado" : "Excused"
+        case .signature: defaultTitle = language == "es" ? "Firma" : "Signature"
+        case .notes: defaultTitle = language == "es" ? "Notas" : "Notes"
+        }
+        let customTitle = labels?[column.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return customTitle.flatMap { $0.isEmpty ? nil : $0 } ?? defaultTitle
+    }
+
+    private static func columnHeadingRect(x: CGFloat, bottom: CGFloat, width: CGFloat) -> CGRect {
+        CGRect(x: x + 5, y: bottom + 7, width: width - 10, height: 16)
+    }
+
     @discardableResult
     private static func drawTableHeader(
         _ context: CGContext, columns: [TemplateColumn], widths: [CGFloat], accent: PaperColor,
-        labels: [String: String]?, top: CGFloat, pageWidth: CGFloat, language: String
+        headings: [String], top: CGFloat, pageWidth: CGFloat
     ) -> CGFloat {
         let height: CGFloat = 30
         let bottom = top - height
@@ -277,20 +316,9 @@ public enum AttendancePDF {
         context.fill(CGRect(x: margin, y: bottom, width: pageWidth - margin * 2, height: height))
         let titleColor = headerTextColor(for: accent)
         var x = margin
-        for (column, width) in zip(columns, widths) {
-            let defaultTitle: String
-            switch column {
-            case .participant: defaultTitle = language == "es" ? "Nombre" : "Name"
-            case .present: defaultTitle = language == "es" ? "Presente" : "Present"
-            case .absent: defaultTitle = language == "es" ? "Ausente" : "Absent"
-            case .excused: defaultTitle = language == "es" ? "Excusado" : "Excused"
-            case .signature: defaultTitle = language == "es" ? "Firma" : "Signature"
-            case .notes: defaultTitle = language == "es" ? "Notas" : "Notes"
-            }
-            let customTitle = labels?[column.rawValue]?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let title = customTitle.flatMap { $0.isEmpty ? nil : $0 } ?? defaultTitle
-            draw(title, in: CGRect(x: x + 5, y: bottom + 7, width: width - 10, height: 16),
+        for (index, pair) in zip(columns, widths).enumerated() {
+            let (column, width) = pair
+            draw(headings[index], in: columnHeadingRect(x: x, bottom: bottom, width: width),
                  font: .systemFont(ofSize: 9, weight: .semibold), color: titleColor,
                  alignment: column == .participant ? .left : .center)
             x += width
@@ -399,6 +427,7 @@ public enum AttendancePDF {
 
     private static func validateFixedText(
         _ text: String?, in rect: CGRect, font: PaperFont, color: PaperColor,
+        alignment: NSTextAlignment = .left,
         error: AttendancePDFError
     ) throws {
         guard let text, !text.isEmpty else { return }
@@ -407,7 +436,7 @@ public enum AttendancePDF {
         let bounds = (text as NSString).boundingRect(
             with: CGSize(width: rect.width, height: CGFloat.greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: textAttributes(font: font, color: color), context: nil)
+            attributes: textAttributes(font: font, color: color, alignment: alignment), context: nil)
         // Bounding widths can include trailing whitespace outside the constraint;
         // this policy checks vertical fit without imposing a new text-width limit.
         guard bounds.width.isFinite, bounds.height.isFinite,

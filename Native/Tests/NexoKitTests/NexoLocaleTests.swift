@@ -1,6 +1,11 @@
 import Testing
 @testable import NexoKit
 struct NexoLocaleTests {
+    @Test func identifiesTheDisplayedColumnWithOverflowInBothLanguages() {
+        let key = "El título de la columna {0} no cabe. Acórtalo, quita columnas o elige una página más ancha."
+        #expect(NexoLocale.translate(key, language: "es", values: ["2"]) == "El título de la columna 2 no cabe. Acórtalo, quita columnas o elige una página más ancha.")
+        #expect(NexoLocale.translate(key, language: "en", values: ["2"]) == "Column 2 heading does not fit. Shorten it, remove columns, or choose a wider page.")
+    }
     @Test func explainsFixedTextOverflowInBothLanguages() {
         let title = "El título no cabe. Acórtalo o usa un bloque de texto."
         let footer = "El pie de página no cabe. Acórtalo o usa un bloque de texto."

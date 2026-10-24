@@ -698,5 +698,6 @@ public enum NexoLocale {
         "El texto no cabe en la página. Muévelo hacia arriba, amplía su ancho o reduce su tamaño.": "The text does not fit on the page. Move it up, widen it, or reduce its size.",
         "El título no cabe. Acórtalo o usa un bloque de texto.": "The title does not fit. Shorten it or use a text block.",
         "El pie de página no cabe. Acórtalo o usa un bloque de texto.": "The footer does not fit. Shorten it or use a text block.",
+        "El título de la columna {0} no cabe. Acórtalo, quita columnas o elige una página más ancha.": "Column {0} heading does not fit. Shorten it, remove columns, or choose a wider page.",
     ]
 }
