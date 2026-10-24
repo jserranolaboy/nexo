@@ -60,6 +60,7 @@ export function App() {
     [epoch, setEpoch] = useState(0)
   const [eventDraft, setEventDraft] = useState<EventDraft | null>(null),
     [simple, setSimple] = useState<SimpleKind | null>(null),
+    [creatingFirstSpace, setCreatingFirstSpace] = useState(false),
     [editPeriod, setEditPeriod] = useState(false),
     [components, setComponents] = useState<{ focus: ID | null } | null>(null),
     [groupsOpen, setGroupsOpen] = useState(false),
@@ -164,6 +165,8 @@ export function App() {
     setComponentFilter('')
   }
   const enterSpace = (id: ID) => {
+    setCreatingFirstSpace(false)
+    setSimple(null)
     setOrgID(id)
     setPeriodID('')
     resetSelection()
@@ -317,19 +320,21 @@ export function App() {
       </main>
     )
   }
-  if (!organization)
+  // A committed snapshot arrives before mutate's status read finishes. Keep the
+  // first form mounted in its original context until it completes or is closed.
+  if (!organization || creatingFirstSpace)
     return (
       <>
         <FirstOpening
           native={nativeAvailable}
-          create={() => setSimple('organization')}
+          create={() => setCreatingFirstSpace(true)}
           demo={startDemo}
           trash={s.organizations.some((o) => o.deletedAt) ? () => setSpaces('trash') : undefined}
           restore={() => void restore()}
           connect={() => setSettings(true)}
         />
-        <SimpleForm s={s} orgID="" kind={simple} close={() => setSimple(null)} created={(_, id) => enterSpace(id)} />
-        {spaces && <SpaceManager initialTrash={spaces === 'trash'} close={() => setSpaces(null)} create={() => setSimple('organization')} open={enterSpace} changed={() => {}} />}
+        <SimpleForm s={s} orgID="" kind={creatingFirstSpace ? 'organization' : null} close={() => setCreatingFirstSpace(false)} created={(_, id) => enterSpace(id)} />
+        {spaces && <SpaceManager initialTrash={spaces === 'trash'} close={() => setSpaces(null)} create={() => setCreatingFirstSpace(true)} open={enterSpace} changed={() => {}} />}
         {settings && <SettingsSheet open={settings} close={() => setSettings(false)} orgID="" saveCopy={saveCopy} restore={restore} startDemo={startDemo} />}
         <Toast />
       </>

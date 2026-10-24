@@ -2845,3 +2845,137 @@ it.each(['busy', 'driveBusy'])('defers person group replacements while workspace
   expect(r.mutate).not.toHaveBeenCalled()
   expect(r.group().props['aria-pressed']).toBe(true)
 })
+
+// Publish the real provider snapshot while holding its post-commit status read.
+async function openingSpaceHarness() {
+  let latest = emptySnapshot()
+  const mutations: { action: any; resolve: (value: unknown) => void; reject: (error: Error) => void }[] = []
+  const statuses: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = []
+  test.bridge.mockImplementation(request => {
+    if (request.command === 'load') return Promise.resolve({ snapshot: latest, drive: emptyDrive })
+    if (request.command === 'recoverDraft' || request.command === 'activeOrganization') return Promise.resolve({})
+    if (request.command === 'mutate') return new Promise((resolve, reject) => mutations.push({ action: request.action, resolve, reject }))
+    if (request.command === 'driveStatus') return new Promise((resolve, reject) => statuses.push({ resolve, reject }))
+    throw new Error(`Unexpected synthetic command ${request.command}`)
+  })
+  const provider = new test.Hooks(), app = new test.Hooks()
+  let outer = new test.Hooks(), body = new test.Hooks(), identity = ''
+  let current: Element, sheet: Element, tree: Element
+  const workspace = () => provider.render(() => WorkspaceProvider({ children: null })).props.value
+  const render = () => {
+    test.context = workspace()
+    tree = app.render(() => App())
+    current = component(tree, 'SimpleForm')
+    let first = false
+    try { component(tree, 'FirstOpening'); first = true } catch { /* normal workspace */ }
+    // Mirror unmount at the distinct App return branches and the form's
+    // organization-key change; this is callback coverage, not a DOM renderer.
+    const next = `${first}:${current.props.orgID}`
+    if (identity && identity !== next) {
+      outer.dispose(); body.dispose(); outer = new test.Hooks(); body = new test.Hooks()
+    }
+    identity = next
+    sheet = outer.render(() => invoke(current))
+    return tree
+  }
+  const form = () => { render(); return body.render(() => invoke(component(sheet, 'SimpleBody'))) }
+  const input = () => find(form(), e => e.type === 'input')
+  workspace(); await flush(); test.context = workspace(); app.render(() => App()); await flush()
+  const open = () => { component(render(), 'FirstOpening').props.create(); render() }
+  open()
+  return { workspace, render, form, input, open, mutations, statuses,
+    kind: () => { render(); return current.props.kind },
+    dismiss: () => { render(); return sheet.props.onClose() },
+    submit: () => form().props.onSubmit({ preventDefault: vi.fn() }),
+    commit: async (index = 0) => { latest = simulateAction(latest, mutations[index].action); mutations[index].resolve(latest); await flush() },
+    navigate: (id: string) => { const event = new Event('nexo-open-space'); Object.assign(event, { detail: id }); window.dispatchEvent(event); render() },
+  }
+}
+
+describe('First-space creation across committed snapshot publication', () => {
+  it('still creates and enters another space from an existing workspace', async () => {
+    const r = await openingSpaceHarness()
+    r.input().props.onChange({ target: { value: 'First synthetic space' } })
+    const first = r.submit(); await flush(); await r.commit()
+    r.render()
+    r.statuses[0].resolve(emptyDrive); await first
+    component(r.render(), 'SpaceSwitcher').props.create()
+    r.input().props.onChange({ target: { value: 'Second synthetic space' } })
+    const second = r.submit(); await flush(); await r.commit(1)
+    expect(component(r.render(), 'SpaceSwitcher').props.current.name).toBe('First synthetic space')
+    expect(r.input().props.value).toBe('Second synthetic space')
+    r.statuses[1].resolve(emptyDrive); await second
+    expect(r.kind()).toBeNull()
+    expect(component(r.render(), 'SpaceSwitcher').props.current.name).toBe('Second synthetic space')
+    expect(r.workspace().snapshot.organizations).toHaveLength(2)
+  })
+  it('retains the submitted first-space draft while post-commit status is pending', async () => {
+    const r = await openingSpaceHarness()
+    r.input().props.onChange({ target: { value: 'Synthetic first space' } })
+    const pending = r.submit(); await flush(); await r.commit()
+    expect(r.workspace().snapshot.organizations[0].name).toBe('Synthetic first space')
+    expect(r.workspace().busy).toBe(true)
+    expect(r.input().props).toMatchObject({ value: 'Synthetic first space', readOnly: true })
+    expect(r.mutations).toHaveLength(1)
+    r.statuses[0].resolve(emptyDrive); await pending
+  })
+  it('closes first-space creation after success instead of opening a blank duplicate form', async () => {
+    const r = await openingSpaceHarness()
+    r.input().props.onChange({ target: { value: 'Synthetic first space' } })
+    const pending = r.submit(); await flush(); await r.commit()
+    r.render()
+    r.statuses[0].resolve(emptyDrive); await pending
+    expect(r.kind()).toBeNull()
+    expect(r.workspace().snapshot.organizations).toHaveLength(1)
+    expect(component(r.render(), 'SpaceSwitcher').props.current.name).toBe('Synthetic first space')
+  })
+  it('cancels unsent first-space entry and ignores retained submit callbacks after reopening', async () => {
+    const r = await openingSpaceHarness()
+    r.input().props.onChange({ target: { value: 'Canceled draft' } })
+    const oldForm = r.form()
+    expect(r.dismiss()).toBe(true)
+    expect(r.kind()).toBeNull()
+    r.open()
+    await oldForm.props.onSubmit({ preventDefault: vi.fn() })
+    expect(r.mutations).toHaveLength(0)
+    expect(r.kind()).toBe('organization')
+  })
+  it('preserves failed first-space input and permits one successful retry', async () => {
+    const r = await openingSpaceHarness()
+    r.input().props.onChange({ target: { value: 'Retryable first space' } })
+    const first = r.submit(); await flush()
+    r.mutations[0].reject(new Error('Synthetic native rejection'))
+    await first
+    expect(r.input().props.value).toBe('Retryable first space')
+    expect(component(r.form(), 'Footer').props.error).toBe('Synthetic native rejection')
+    const retry = r.submit(); await flush()
+    expect(r.mutations).toHaveLength(2)
+    await r.commit(1)
+    r.render()
+    r.statuses[0].resolve(emptyDrive); await retry
+    expect(r.kind()).toBeNull()
+    expect(r.workspace().snapshot.organizations).toHaveLength(1)
+  })
+  it('refuses pending dismissal and treats failed post-commit Drive status as saved', async () => {
+    const r = await openingSpaceHarness()
+    r.input().props.onChange({ target: { value: 'Committed despite status failure' } })
+    const pending = r.submit(); await flush(); await r.commit()
+    expect(r.dismiss()).toBe(false)
+    expect(r.input().props.value).toBe('Committed despite status failure')
+    r.statuses[0].reject(new Error('Synthetic status unavailable')); await pending
+    expect(r.kind()).toBeNull()
+    expect(r.workspace().snapshot.organizations).toHaveLength(1)
+  })
+  it('does not let old creation completion reset navigation after an explicit space entry', async () => {
+    const r = await openingSpaceHarness()
+    r.input().props.onChange({ target: { value: 'Committed first space' } })
+    const pending = r.submit(); await flush(); await r.commit()
+    r.navigate(r.workspace().snapshot.organizations[0].id)
+    expect(r.kind()).toBeNull()
+    find(r.render(), e => e.type === 'button' && e.key === 'people').props.onClick()
+    expect(find(r.render(), e => e.type === 'h1').props.children).toBe(tr('Personas'))
+    r.statuses[0].resolve(emptyDrive); await pending
+    expect(find(r.render(), e => e.type === 'h1').props.children).toBe(tr('Personas'))
+    expect(r.kind()).toBeNull()
+  })
+})
