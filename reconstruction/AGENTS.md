@@ -8,7 +8,7 @@ Este archivo manda dentro de `reconstruction/`. El `AGENTS.md` de la raíz remit
 - Los instantes van en UTC canónico. No fijes `America/Puerto_Rico` ni otra zona como regla de producto.
 - La zona del espacio es un dato. La pertenencia a un período compara instantes en un intervalo semiabierto.
 - Una asistencia sin registros computables es nula, no `0 %`.
-- La sugerencia de voluntariado no selecciona. El cupo se rechaza al elegir, importar y combinar. No dupliques esas reglas.
+- La sugerencia de voluntariado no selecciona. El ámbito con categoría y los rechazos de cupo, encuentro cancelado, persona inactiva, otro espacio y período usan las funciones que ya existen. Un comando rechazado no se guarda. No dupliques esas reglas.
 - Si un texto no cabe, se informa entero. No se recorta.
 - Un guardado local ya hecho no se convierte en fallo porque después falle Drive.
 - Una restauración no añade subidas.
