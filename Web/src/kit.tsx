@@ -466,7 +466,9 @@ export function InlineText({
   const [editing, setEditing] = useState(false),
     [draft, setDraft] = useState(value),
     [saving, setSaving] = useState(false)
-  const input = useRef<HTMLInputElement>(null)
+  const input = useRef<HTMLInputElement>(null),
+    isEditing = useRef(false),
+    submitting = useRef(false)
   useEffect(() => {
     if (!editing) setDraft(value)
   }, [value, editing])
@@ -477,19 +479,24 @@ export function InlineText({
     }
   }, [editing])
   const commit = async () => {
+    if (!isEditing.current || submitting.current) return
     const next = draft.trim()
     if (!next || next === value) {
+      isEditing.current = false
       setEditing(false)
       setDraft(value)
       return
     }
+    submitting.current = true
     setSaving(true)
     try {
       await onSave(next)
+      isEditing.current = false
       setEditing(false)
     } catch {
       input.current?.focus()
     } finally {
+      submitting.current = false
       setSaving(false)
     }
   }
@@ -501,7 +508,10 @@ export function InlineText({
           className="nx-inline-trigger"
           disabled={disabled}
           aria-label={`${label}: ${value}`}
-          onClick={() => setEditing(true)}
+          onClick={() => {
+            isEditing.current = true
+            setEditing(true)
+          }}
         >
           {value}
         </button>
@@ -514,7 +524,7 @@ export function InlineText({
         value={draft}
         aria-label={label}
         maxLength={200}
-        disabled={saving}
+        readOnly={saving}
         autoCapitalize="words"
         autoCorrect="off"
         spellCheck={false}
@@ -529,8 +539,11 @@ export function InlineText({
           if (e.key === 'Escape') {
             e.preventDefault()
             e.stopPropagation()
-            setDraft(value)
-            setEditing(false)
+            if (!submitting.current) {
+              isEditing.current = false
+              setDraft(value)
+              setEditing(false)
+            }
           }
         }}
       />

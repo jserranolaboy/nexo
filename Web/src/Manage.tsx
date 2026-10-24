@@ -1,5 +1,5 @@
 import { t as tr } from './i18n'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { id } from './domain'
 import type { ID, Snapshot } from './domain'
@@ -8,7 +8,25 @@ import { InlineText, Sheet } from './kit'
 
 function AddLine({ label, onAdd }: { label: string; onAdd: (name: string) => Promise<unknown> }) {
   const [name, setName] = useState(''),
-    [open, setOpen] = useState(false)
+    [open, setOpen] = useState(false),
+    [saving, setSaving] = useState(false)
+  const submitting = useRef(false)
+  const add = async () => {
+    if (submitting.current) return
+    const next = name.trim()
+    if (!next) return setOpen(false)
+    submitting.current = true
+    setSaving(true)
+    try {
+      await onAdd(next)
+      setName('')
+    } catch {
+      // The workspace reports the error; retain the name for a deliberate retry.
+    } finally {
+      submitting.current = false
+      setSaving(false)
+    }
+  }
   if (!open)
     return (
       <button className="nx-add-line" onClick={() => setOpen(true)}>
@@ -21,26 +39,26 @@ function AddLine({ label, onAdd }: { label: string; onAdd: (name: string) => Pro
       className="nx-add-line is-open"
       onSubmit={(e) => {
         e.preventDefault()
-        if (!name.trim()) return setOpen(false)
-        void onAdd(name.trim()).then(() => setName(''), () => {})
+        void add()
       }}
     >
       <input
         autoFocus
         value={name}
+        readOnly={saving}
         maxLength={200}
         placeholder={label}
         aria-label={label}
         onChange={(e) => setName(e.target.value)}
-        onBlur={() => !name.trim() && setOpen(false)}
+        onBlur={() => !submitting.current && !name.trim() && setOpen(false)}
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
             e.stopPropagation()
-            setOpen(false)
+            if (!submitting.current) setOpen(false)
           }
         }}
       />
-      <button className="nx-button small primary" disabled={!name.trim()}>
+      <button className="nx-button small primary" disabled={saving || !name.trim()}>
         {tr('Añadir')}
       </button>
     </form>

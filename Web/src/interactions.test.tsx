@@ -136,7 +136,8 @@ vi.mock('motion/react', () => ({
   animate: vi.fn(),
 }))
 
-import { Sheet } from './kit'
+import { InlineText, Sheet } from './kit'
+import { ComponentsSheet, GroupsSheet } from './Manage'
 import { EventView } from './EventView'
 import { DocumentStudio } from './Studio'
 import { WorkspaceProvider } from './workspace'
@@ -703,5 +704,93 @@ it('keeps PDF page changes, row-height edits and table-position edits renderable
   expect(notify).toHaveBeenCalledWith(
     tr('El PDF no tiene una página donde pueda colocarse la lista.'),
     true,
+  )
+})
+
+
+describe('Inline name editing', () => {
+  function editor(onSave = vi.fn().mockResolvedValue(undefined)) {
+    const hooks = new test.Hooks()
+    const render = () => hooks.render(() => InlineText({ value: 'Original', label: 'Name', onSave }))
+    find(render(), (element) => element.type === 'button').props.onClick()
+    find(render(), (element) => element.type === 'input').props.onChange({ target: { value: 'Renamed' } })
+    const input = () => find(render(), (element) => element.type === 'input')
+    const key = (name: string) => ({ key: name, preventDefault: vi.fn(), stopPropagation: vi.fn() })
+    return { render, input, key, onSave }
+  }
+
+  it('submits only once when Enter is followed by blur, and retries a rejected name', async () => {
+    let reject!: (error: Error) => void
+    const pending = new Promise<void>((_resolve, fail) => { reject = fail })
+    const save = vi.fn().mockReturnValueOnce(pending).mockResolvedValue(undefined)
+    const r = editor(save), input = r.input()
+    input.props.onKeyDown(r.key('Enter'))
+    input.props.onBlur()
+    expect(save).toHaveBeenCalledOnce()
+    expect(r.input().props.readOnly).toBe(true)
+    reject(new Error('Synthetic rename failed'))
+    await flush()
+    expect(r.input().props).toMatchObject({ value: 'Renamed', readOnly: false })
+    r.input().props.onKeyDown(r.key('Enter'))
+    await flush()
+    expect(save.mock.calls).toEqual([['Renamed'], ['Renamed']])
+    expect(find(r.render(), (element) => element.type === 'button')).toBeDefined()
+  })
+
+  it('Escape cancels without committing through a trailing blur callback', async () => {
+    const r = editor(), input = r.input()
+    input.props.onKeyDown(r.key('Escape'))
+    input.props.onBlur()
+    await flush()
+    expect(r.onSave).not.toHaveBeenCalled()
+    expect(find(r.render(), (element) => element.type === 'button').props.children).toBe('Original')
+  })
+
+  it('does not dismiss a pending rename as if Escape had canceled it', async () => {
+    let resolve!: () => void
+    const r = editor(vi.fn().mockReturnValue(new Promise<void>((done) => { resolve = done })))
+    const input = r.input()
+    input.props.onKeyDown(r.key('Enter'))
+    input.props.onKeyDown(r.key('Escape'))
+    expect(r.input().props).toMatchObject({ value: 'Renamed', readOnly: true })
+    resolve()
+    await flush()
+    expect(r.onSave).toHaveBeenCalledOnce()
+    expect(find(r.render(), (element) => element.type === 'button')).toBeDefined()
+  })
+})
+
+describe('Managed classification creation', () => {
+  it.each(['component', 'category', 'group'])(
+    'guards repeated %s submissions and keeps a rejected name for retry',
+    async (kind) => {
+      let reject!: (error: Error) => void
+      const pending = new Promise<void>((_resolve, fail) => { reject = fail })
+      const mutate = vi.fn().mockReturnValueOnce(pending).mockResolvedValue(fixture())
+      test.context = { mutate }
+      const s = fixture(), hooks = new test.Hooks()
+      const sheet = kind === 'group'
+        ? GroupsSheet({ s, orgID: 'org', open: true, close: vi.fn() })
+        : ComponentsSheet({ s, orgID: 'org', open: true, close: vi.fn() })
+      const label = tr(kind === 'group' ? 'Nuevo grupo' : kind === 'component' ? 'Nuevo componente' : 'Categoría')
+      const add = find(sheet, (element) => typeof element.type === 'function' && element.type.name === 'AddLine' && element.props.label === label)
+      const render = () => hooks.render(() => invoke(add))
+      render().props.onClick()
+      find(render(), (element) => element.type === 'input').props.onChange({ target: { value: 'Keep this name' } })
+      const form = render()
+      form.props.onSubmit({ preventDefault: vi.fn() })
+      form.props.onSubmit({ preventDefault: vi.fn() })
+      expect(mutate).toHaveBeenCalledOnce()
+      expect(find(render(), (element) => element.type === 'input').props.readOnly).toBe(true)
+      expect(find(render(), (element) => element.type === 'button').props.disabled).toBe(true)
+      reject(new Error('Synthetic creation failed'))
+      await flush()
+      expect(find(render(), (element) => element.type === 'input').props).toMatchObject({ value: 'Keep this name', readOnly: false })
+      render().props.onSubmit({ preventDefault: vi.fn() })
+      await flush()
+      expect(mutate).toHaveBeenCalledTimes(2)
+      expect(mutate.mock.calls[1][0]).toMatchObject({ name: 'Keep this name' })
+      expect(find(render(), (element) => element.type === 'input').props.value).toBe('')
+    },
   )
 })
