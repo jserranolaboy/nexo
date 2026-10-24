@@ -1,0 +1,65 @@
+name: Web CI
+
+'on':
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [refactor/nexo-identity-and-reliability]
+
+permissions:
+  contents: read
+
+# Keep branch-HEAD and PR merge-result checks distinct; cancel superseded runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web tests and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+        working-directory: Web
+    env:
+      COREPACK_DEFAULT_TO_LATEST: '0'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.22.1'
+          package-manager-cache: false
+
+      - name: Configure temporary Corepack storage
+        run: echo "COREPACK_HOME=$RUNNER_TEMP/nexo-corepack" >> "$GITHUB_ENV"
+
+      - name: Report toolchain
+        run: |
+          node --version
+          corepack --version
+          corepack pnpm --version
+
+      - name: Install locked dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Test
+        run: corepack pnpm test
+
+      - name: Build
+        run: corepack pnpm build
+
+      - name: Browser editing and recovery smoke
+        run: |
+          node --test ../scripts/browser-recovery-fixture.test.mjs ../scripts/browser-request.test.mjs ../scripts/smoke-process.test.mjs
+          node ../scripts/browser-smoke.mjs
+
+      - name: Check locale synchronization
+        run: node ../scripts/sync-locales.mjs --check

@@ -1,0 +1,3827 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ReactElement } from 'react'
+import { emptySnapshot, newTemplate, currentGroups, simulateAction } from './domain'
+import { emptyDrive } from './drive'
+import { t as tr } from './i18n'
+
+// Exercise component callbacks and effect lifetimes without a browser or another renderer dependency.
+const test = vi.hoisted(() => {
+  type Slot = { value?: unknown; deps?: readonly unknown[]; cleanup?: () => void }
+  let active: Hooks
+  const renderers: Hooks[] = []
+  class Hooks {
+    slots: Slot[] = []
+    cursor = 0
+    changed = false
+    pending: (() => void)[] = []
+    constructor() {
+      renderers.push(this)
+    }
+    slot() {
+      return (this.slots[this.cursor++] ??= {})
+    }
+    render<T>(component: () => T): T {
+      let result: T
+      do {
+        this.changed = false
+        this.cursor = 0
+        active = this
+        result = component()
+        for (const effect of this.pending.splice(0)) effect()
+      } while (this.changed)
+      return result!
+    }
+    dispose() {
+      this.slots.forEach((slot) => slot.cleanup?.())
+    }
+  }
+  const different = (a?: readonly unknown[], b?: readonly unknown[]) =>
+    !a || !b || a.length !== b.length || a.some((value, i) => !Object.is(value, b[i]))
+  const state = (initial: unknown) => {
+    const owner = active,
+      slot = owner.slot()
+    if (!('value' in slot)) slot.value = typeof initial === 'function' ? initial() : initial
+    return [
+      slot.value,
+      (value: unknown) => {
+        const next = typeof value === 'function' ? value(slot.value) : value
+        if (!Object.is(next, slot.value)) {
+          slot.value = next
+          owner.changed = true
+        }
+      },
+    ]
+  }
+  const ref = (initial: unknown) => {
+    const slot = active.slot()
+    return (slot.value ??= { current: initial })
+  }
+  const memo = (fn: () => unknown, deps?: readonly unknown[]) => {
+    const slot = active.slot()
+    if (different(slot.deps, deps)) {
+      slot.value = fn()
+      slot.deps = deps
+    }
+    return slot.value
+  }
+  const effect = (fn: () => void | (() => void), deps?: readonly unknown[]) => {
+    const owner = active,
+      slot = owner.slot()
+    if (different(slot.deps, deps)) {
+      slot.deps = deps
+      owner.pending.push(() => {
+        slot.cleanup?.()
+        slot.cleanup = fn() || undefined
+      })
+    }
+  }
+  const effectEvent = (fn: (...args: unknown[]) => unknown) => {
+    const slot = active.slot()
+    slot.value = fn
+    return (...args: unknown[]) => (slot.value as typeof fn)(...args)
+  }
+  const bridge = vi.fn()
+  const surface = Object.assign(new EventTarget(), {
+    innerWidth: 1200,
+    nexoLocale: 'en',
+    matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+    webkit: { messageHandlers: { valentina: { postMessage: bridge } } },
+  })
+  vi.stubGlobal('window', surface)
+  vi.stubGlobal(
+    'document',
+    Object.assign(new EventTarget(), {
+      documentElement: { classList: { add() {}, remove() {} }, dataset: {}, style: {} },
+      activeElement: null,
+      hidden: false,
+      querySelector: () => null,
+      body: {},
+    }),
+  )
+  vi.stubGlobal('requestAnimationFrame', () => 1)
+  vi.stubGlobal('cancelAnimationFrame', () => {})
+  vi.stubGlobal('Element', class {})
+  return {
+    Hooks,
+    present: true,
+    state,
+    ref,
+    memo,
+    effect,
+    effectEvent,
+    bridge,
+    context: {} as unknown,
+    dispose: () => renderers.splice(0).forEach((renderer) => renderer.dispose()),
+  }
+})
+
+vi.mock('react', async (original) => ({
+  ...(await original<typeof import('react')>()),
+  useState: test.state,
+  useRef: test.ref,
+  useMemo: test.memo,
+  useCallback: (fn: () => unknown, deps: readonly unknown[]) => test.memo(() => fn, deps),
+  useEffect: test.effect,
+  useLayoutEffect: test.effect,
+  useEffectEvent: test.effectEvent,
+  useId: () => test.memo(() => 'synthetic-id', []),
+  useContext: () => test.context,
+  useSyncExternalStore: (_subscribe: unknown, snapshot: () => unknown) => snapshot(),
+}))
+vi.mock('react-dom', () => ({ createPortal: (children: unknown) => children }))
+// Geometry tests drive mobile controls, not browser-dependent pinch/scroll behavior.
+vi.mock('./usePaperZoom', () => ({
+  usePaperZoom: () => ({ scroll: { current: null }, width: 0, zoom: 1, reset: vi.fn() }),
+}))
+vi.mock('motion/react', () => ({
+  AnimatePresence: 'presence',
+  motion: new Proxy({}, { get: (_target, name) => String(name) }),
+  useMotionValue: () => ({ set: vi.fn() }),
+  useReducedMotion: () => false,
+  useIsPresent: () => test.present,
+  useTransform: () => 0,
+  animate: vi.fn(),
+}))
+
+import { InlineText, Sheet } from './kit'
+import { animate } from 'motion/react'
+import { ComponentsSheet, GroupsSheet } from './Manage'
+import { EventView } from './EventView'
+import { DocumentStudio } from './Studio'
+import { WorkspaceProvider } from './workspace'
+import { EventForm, SimpleForm } from './forms'
+import { App } from './App'
+import { DrivePanel } from './DrivePanel'
+import { SpaceManager } from './SpaceManager'
+import { PersonPanel } from './PeopleView'
+
+type Element = ReactElement<Record<string, any>>
+function find(tree: unknown, match: (element: Element) => boolean): Element {
+  const queue = [tree]
+  while (queue.length) {
+    const item = queue.shift()
+    if (Array.isArray(item)) queue.push(...item)
+    else if (item && typeof item === 'object' && 'props' in item) {
+      const element = item as Element
+      if (match(element)) return element
+      queue.push(element.props.children)
+    }
+  }
+  throw new Error('Synthetic component element not found')
+}
+const component = (tree: unknown, name: string) =>
+  find(tree, (element) => typeof element.type === 'function' && element.type.name === name)
+const invoke = (element: Element) => (element.type as (props: any) => Element)(element.props)
+const flush = async () => {
+  for (let i = 0; i < 12; i++) await Promise.resolve()
+}
+const fixture = () => {
+  const s = emptySnapshot()
+  s.organizations = [
+    { id: 'org', name: 'Synthetic', accentHex: '#262629', timeZoneIdentifier: 'UTC' },
+  ]
+  s.events = [
+    {
+      id: 'event',
+      organizationID: 'org',
+      title: 'Synthetic event',
+      startsAt: '2026-10-21T12:00:00Z',
+      componentID: 'component',
+      countsAttendance: true,
+      isCancelled: false,
+    },
+  ]
+  s.members = [{ id: 'member', organizationID: 'org', name: 'Ana', isActive: true }]
+  s.components = [{ id: 'component', organizationID: 'org', name: 'Synthetic component' }]
+  s.attendance = [
+    {
+      id: 'row',
+      eventID: 'event',
+      memberID: 'member',
+      status: 'present',
+      isVoided: false,
+      note: '',
+    },
+  ]
+  return s
+}
+
+beforeEach(() => {
+  vi.useFakeTimers()
+  test.bridge.mockReset()
+  test.present = true
+  delete window.nexoDevice
+  window.innerWidth = 1200
+})
+afterEach(() => {
+  test.dispose()
+  vi.clearAllTimers()
+  vi.useRealTimers()
+})
+
+function record(mutate = vi.fn().mockResolvedValue(fixture())) {
+  const s = fixture(),
+    close = vi.fn(),
+    openMember = vi.fn()
+  test.context = { mutate, notify: vi.fn() }
+  const eventHooks = new test.Hooks(),
+    rollHooks = new test.Hooks(),
+    recordHooks = new test.Hooks()
+  const eventTree = eventHooks.render(() =>
+    EventView({ s, event: s.events[0], edit: vi.fn(), document: vi.fn(), openMember }),
+  )
+  const roll = component(eventTree, 'Roll')
+  const rollTree = rollHooks.render(() => invoke(roll))
+  component(rollTree, 'RollRow').props.open()
+  const original = component(
+    rollHooks.render(() => invoke(roll)),
+    'RecordSheet',
+  )
+  const recordElement: Element = { ...original, props: { ...original.props, close } }
+  const render = () => recordHooks.render(() => invoke(recordElement))
+  let tree = render()
+  find(tree, (element) => element.type === 'textarea').props.onChange({
+    target: { value: 'Avisó' },
+  })
+  tree = render()
+  return { tree, render, mutate, close, openMember,
+    dispose: () => { recordHooks.dispose(); rollHooks.dispose(); eventHooks.dispose() },
+    changeContext: (changeEvent = false) => {
+      const event = changeEvent ? { ...s.events[0], id: 'next-event' } : s.events[0]
+      const row = { ...s.attendance[0], id: 'next-row', eventID: event.id, memberID: 'next-member', note: 'Existing next note' }
+      s.members.push({ id: 'next-member', organizationID: 'org', name: 'Bea', isActive: true })
+      if (changeEvent) s.events.push(event)
+      s.attendance.push(row)
+      recordElement.props.event = event
+      recordElement.props.row = row
+      return render()
+    },
+  }
+}
+
+describe('Attendance note dismissal', () => {
+  it('Escape saves the latest note even though the sheet stayed open', async () => {
+    const r = record(),
+      sheetHooks = new test.Hooks()
+    const props = r.tree.props as Parameters<typeof Sheet>[0]
+    sheetHooks.render(() => Sheet({ ...props, onClose: vi.fn() }))
+    sheetHooks.render(() => Sheet(props))
+    const escape = Object.assign(new Event('keydown', { cancelable: true }), { key: 'Escape' })
+    window.dispatchEvent(escape)
+    await flush()
+    expect(r.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ note: 'Avisó', expectedNote: '', noteOnly: true }),
+      expect.any(String),
+    )
+    expect(r.close).toHaveBeenCalledOnce()
+  })
+  it.each(['history', 'exclude'])('saves a dirty note before %s', async (route) => {
+    const r = record()
+    find(
+      r.tree,
+      (element) =>
+        element.props.className ===
+        (route === 'history' ? 'nx-group-row link' : 'nx-group-row link danger'),
+    ).props.onClick()
+    expect(r.close).not.toHaveBeenCalled()
+    await flush()
+    expect(r.mutate.mock.calls[0][0]).toMatchObject({ kind: 'attendance', note: 'Avisó' })
+    if (route === 'history') expect(r.openMember).toHaveBeenCalledWith('member')
+    else expect(r.mutate.mock.calls[1][0]).toMatchObject({ kind: 'inclusion', included: false })
+    expect(r.close).toHaveBeenCalledOnce()
+  })
+  it.each(['history', 'exclude'])(
+    'keeps the note and record open when save before %s fails',
+    async (route) => {
+      const r = record(vi.fn().mockRejectedValue(new Error('Synthetic note conflict')))
+      find(
+        r.tree,
+        (element) =>
+          element.props.className ===
+          (route === 'history' ? 'nx-group-row link' : 'nx-group-row link danger'),
+      ).props.onClick()
+      await flush()
+      const tree = r.render()
+      expect(r.close).not.toHaveBeenCalled()
+      expect(r.openMember).not.toHaveBeenCalled()
+      expect(r.mutate).toHaveBeenCalledOnce()
+      expect(find(tree, (element) => element.type === 'textarea').props.value).toBe('Avisó')
+      expect(find(tree, (element) => element.props.role === 'alert').props.children).toBe(
+        'Synthetic note conflict',
+      )
+    },
+  )
+  it('does not queue duplicate note saves while dismissal is pending', async () => {
+    let resolve!: () => void
+    const pending = new Promise<void>((done) => {
+      resolve = done
+    })
+    const r = record(vi.fn().mockReturnValue(pending))
+    r.tree.props.onClose()
+    r.tree.props.onClose()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    resolve()
+    await flush()
+    expect(r.close).toHaveBeenCalledOnce()
+  })
+  it('can retry exclusion after the note saved but exclusion failed', async () => {
+    const mutate = vi
+      .fn()
+      .mockResolvedValue(fixture())
+      .mockResolvedValueOnce(fixture())
+      .mockRejectedValueOnce(new Error('Synthetic exclusion failed'))
+    const r = record(mutate)
+    const exclude = (tree: unknown) =>
+      find(tree, (element) => element.props.className === 'nx-group-row link danger')
+    exclude(r.tree).props.onClick()
+    await flush()
+    expect(r.close).not.toHaveBeenCalled()
+    exclude(r.render()).props.onClick()
+    await flush()
+    expect(mutate.mock.calls.map(([action]) => action.kind)).toEqual([
+      'attendance',
+      'inclusion',
+      'inclusion',
+    ])
+    expect(r.close).toHaveBeenCalledOnce()
+  })
+})
+
+describe('Committed workspace edits', () => {
+  it('resolves a committed edit when Drive status fails and uses its revision for the next edit', async () => {
+    const s = fixture(),
+      hooks = new test.Hooks()
+    test.bridge.mockImplementation(
+      async (request: { command: string; expectedRevision?: number }) => {
+        if (request.command === 'load') return { snapshot: s, drive: emptyDrive }
+        if (request.command === 'mutate') return { ...s, revision: request.expectedRevision! + 1 }
+        throw new Error('Synthetic status unavailable')
+      },
+    )
+    const render = () => hooks.render(() => WorkspaceProvider({ children: null }))
+    render()
+    await flush()
+    let workspace = render().props.value
+    await expect(workspace.mutate({ kind: 'synthetic' }, 'Guardado')).resolves.toMatchObject({
+      revision: 1,
+    })
+    workspace = render().props.value
+    expect(workspace.snapshot.revision).toBe(1)
+    expect(workspace.drive.error).toBe('Synthetic status unavailable')
+    expect(workspace.toast).toMatchObject({ message: 'Guardado', error: false })
+    await expect(workspace.mutate({ kind: 'synthetic' })).resolves.toMatchObject({ revision: 2 })
+    expect(
+      test.bridge.mock.calls
+        .filter(([request]) => request.command === 'mutate')
+        .map(([request]) => request.expectedRevision),
+    ).toEqual([0, 1])
+  })
+  it('still rejects a failed native mutation and preserves the previous snapshot', async () => {
+    const s = fixture(),
+      hooks = new test.Hooks()
+    test.bridge.mockImplementation(async ({ command }) => {
+      if (command === 'load') return { snapshot: s, drive: emptyDrive }
+      throw new Error('Synthetic mutation rejected')
+    })
+    const render = () => hooks.render(() => WorkspaceProvider({ children: null }))
+    render()
+    await flush()
+    await expect(render().props.value.mutate({ kind: 'synthetic' })).rejects.toThrow(
+      'Synthetic mutation rejected',
+    )
+    expect(render().props.value.snapshot).toEqual(s)
+    expect(test.bridge.mock.calls.map(([request]) => request.command)).toEqual(['load', 'mutate'])
+  })
+})
+
+it('saving a copy preserves pending edits and keeps later undo and save on the copy', async () => {
+  window.nexoDevice = 'iPhone'
+  const s = fixture(),
+    original = newTemplate('org'),
+    hooks = new test.Hooks()
+  s.templates = [original]
+  let resolve!: () => void
+  const pending = new Promise<void>((done) => {
+    resolve = done
+  })
+  const mutate = vi
+    .fn()
+    .mockImplementationOnce(() => pending)
+    .mockResolvedValue(s)
+  test.context = { mutate, busy: false, notify: vi.fn(), demo: true }
+  const render = () =>
+    component(
+      hooks.render(() => DocumentStudio({ s, orgID: 'org', initial: original, back: vi.fn() })),
+      'MobileStudio',
+    ).props
+  let studio = render()
+  const saving = studio.saveCopy()
+  studio.patch({ headerTitle: 'Typed while saving' })
+  resolve()
+  await saving
+  studio = render()
+  const copy = mutate.mock.calls[0][0].entity
+  expect(studio.draft).toMatchObject({ id: copy.id, headerTitle: 'Typed while saving' })
+  expect(studio.draft.id).not.toBe(original.id)
+  expect(studio.canUndo).toBe(false)
+  expect(studio.dirty).toBe(true)
+  studio.patch({ rowHeight: 45 })
+  studio = render()
+  studio.undo()
+  studio = render()
+  expect(studio.draft).toMatchObject({
+    id: copy.id,
+    headerTitle: 'Typed while saving',
+    rowHeight: original.rowHeight,
+  })
+  await studio.save()
+  expect(mutate.mock.calls[1][0]).toMatchObject({
+    kind: 'saveTemplate',
+    entity: { id: copy.id },
+    expectedTemplate: copy,
+  })
+})
+
+function eventForm(
+  s = fixture(),
+  mode: 'edit' | 'duplicate' = 'edit',
+  mutate = vi.fn().mockResolvedValue(s),
+) {
+  const close = vi.fn(),
+    saved = vi.fn(),
+    hooks = new test.Hooks(),
+    outerHooks = new test.Hooks()
+  test.context = { mutate, busy: false }
+  const form = outerHooks.render(() => component(
+    EventForm({ s, orgID: 'org', draft: { mode, event: s.events[0] }, close, saved }),
+    'EventFormBody',
+  ))
+  const render = () => hooks.render(() => invoke(form))
+  return { render, mutate, close, saved }
+}
+
+describe('Inline event classification creation', () => {
+  it.each(['component', 'category'])(
+    'preserves the name and previous selection after failed %s creation, then retries',
+    async (kind) => {
+      const s = fixture()
+      s.categories = [{ id: 'category', componentID: 'component', name: 'Synthetic category' }]
+      s.events[0].categoryID = 'category'
+      const mutate = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Synthetic creation failed'))
+        .mockImplementationOnce(async (action) => {
+          if (kind === 'component')
+            s.components.push({ id: action.id, organizationID: 'org', name: action.name })
+          else
+            s.categories.push({ id: action.id, componentID: action.componentID, name: action.name })
+          return s
+        })
+      const form = eventForm(s, 'edit', mutate),
+        chipHooks = new test.Hooks()
+      const chip = () =>
+        find(
+          form.render(),
+          (element) =>
+            typeof element.type === 'function' &&
+            element.type.name === 'NewChip' &&
+            element.props.label === tr(kind === 'component' ? 'Otro' : 'Categoría'),
+        )
+      const renderChip = () => chipHooks.render(() => invoke(chip()))
+      renderChip().props.onClick()
+      find(renderChip(), (element) => element.type === 'input').props.onChange({
+        target: { value: 'Retry name' },
+      })
+      const enter = () =>
+        find(renderChip(), (element) => element.type === 'input').props.onKeyDown({
+          key: 'Enter',
+          preventDefault: vi.fn(),
+        })
+      enter()
+      await flush()
+      expect(find(renderChip(), (element) => element.type === 'input').props.value).toBe(
+        'Retry name',
+      )
+      let tree = form.render()
+      for (const name of ['Synthetic component', 'Synthetic category'])
+        expect(
+          find(tree, (element) => element.type === 'button' && element.props.children === name)
+            .props['aria-pressed'],
+        ).toBe(true)
+      expect(component(tree, 'Footer').props.error).toBe('Synthetic creation failed')
+      enter()
+      await flush()
+      tree = form.render()
+      expect(mutate).toHaveBeenCalledTimes(2)
+      expect(mutate.mock.calls[1][0]).toMatchObject({
+        kind: kind === 'component' ? 'addComponent' : 'addCategory',
+        name: 'Retry name',
+      })
+      expect(
+        find(
+          tree,
+          (element) => element.type === 'button' && element.props.children === 'Retry name',
+        ).props['aria-pressed'],
+      ).toBe(true)
+      expect(renderChip().type).toBe('button')
+    },
+  )
+
+  it('does not create twice when Enter is followed by blur during an outstanding request', async () => {
+    let reject!: (error: Error) => void
+    const pending = new Promise<void>((_resolve, fail) => {
+      reject = fail
+    })
+    const form = eventForm(fixture(), 'edit', vi.fn().mockReturnValue(pending)),
+      chipHooks = new test.Hooks()
+    const renderChip = () => chipHooks.render(() => invoke(component(form.render(), 'NewChip')))
+    renderChip().props.onClick()
+    find(renderChip(), (element) => element.type === 'input').props.onChange({
+      target: { value: 'Keep me' },
+    })
+    const input = find(renderChip(), (element) => element.type === 'input')
+    input.props.onKeyDown({ key: 'Enter', preventDefault: vi.fn() })
+    input.props.onBlur()
+    expect(form.mutate).toHaveBeenCalledOnce()
+    expect(find(renderChip(), (element) => element.type === 'input').props.readOnly).toBe(true)
+    reject(new Error('Synthetic failure'))
+    await flush()
+    expect(find(renderChip(), (element) => element.type === 'input').props).toMatchObject({
+      value: 'Keep me',
+      readOnly: false,
+    })
+  })
+})
+
+describe('Atomic event duplication submission', () => {
+  it('sends one event-and-roster action and retries a rejected transaction without a second roster action', async () => {
+    const s = fixture()
+    s.members.push(
+      { id: 'inactive', organizationID: 'org', name: 'Inactive', isActive: false },
+      { id: 'excluded', organizationID: 'org', name: 'Excluded', isActive: true },
+    )
+    s.attendance.push(
+      { ...s.attendance[0], id: 'inactive-row', memberID: 'inactive' },
+      { ...s.attendance[0], id: 'excluded-row', memberID: 'excluded', isVoided: true },
+    )
+    const mutate = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Synthetic roster rejected'))
+      .mockResolvedValue(s)
+    const form = eventForm(s, 'duplicate', mutate)
+    await form.render().props.onSubmit({ preventDefault: vi.fn() })
+    expect(mutate).toHaveBeenCalledOnce()
+    expect(form.close).not.toHaveBeenCalled()
+    expect(form.saved).not.toHaveBeenCalled()
+    expect(mutate.mock.calls[0][0]).toMatchObject({
+      kind: 'addEvent',
+      memberIDs: ['member'],
+      entity: { title: s.events[0].title },
+    })
+    await form.render().props.onSubmit({ preventDefault: vi.fn() })
+    expect(mutate.mock.calls.map(([action]) => action.kind)).toEqual(['addEvent', 'addEvent'])
+    expect(form.saved).toHaveBeenCalledWith(mutate.mock.calls[1][0].entity.id)
+    expect(form.close).toHaveBeenCalledOnce()
+  })
+  it('omits memberIDs when copying the list is turned off', async () => {
+    const form = eventForm(fixture(), 'duplicate')
+    find(
+      form.render(),
+      (element) =>
+        typeof element.type === 'function' &&
+        element.type.name === 'Toggle' &&
+        element.props.label === tr('Copiar la lista'),
+    ).props.onChange(false)
+    await form.render().props.onSubmit({ preventDefault: vi.fn() })
+    expect(form.mutate).toHaveBeenCalledOnce()
+    expect(form.mutate.mock.calls[0][0]).not.toHaveProperty('memberIDs')
+  })
+  it('guards a duplicate submit before React has rerendered the busy state', async () => {
+    let resolve!: () => void
+    const pending = new Promise<void>((done) => {
+      resolve = done
+    })
+    const form = eventForm(fixture(), 'duplicate', vi.fn().mockReturnValue(pending)),
+      tree = form.render()
+    const first = tree.props.onSubmit({ preventDefault: vi.fn() })
+    const second = tree.props.onSubmit({ preventDefault: vi.fn() })
+    expect(form.mutate).toHaveBeenCalledOnce()
+    resolve()
+    await Promise.all([first, second])
+    expect(form.close).toHaveBeenCalledOnce()
+  })
+})
+
+describe.each([
+  ['phone', 600],
+  ['tablet', 900],
+  ['desktop', 1200],
+] as const)('Filtered event selection on %s', (layout, width) => {
+  function app() {
+    window.innerWidth = width
+    const s = fixture(),
+      hooks = new test.Hooks()
+    s.components.push(
+      { id: 'other', organizationID: 'org', name: 'Other' },
+      { id: 'empty', organizationID: 'org', name: 'Empty' },
+    )
+    s.events.push({
+      ...s.events[0],
+      id: 'other-event',
+      componentID: 'other',
+      startsAt: '2026-10-22T12:00:00Z',
+    })
+    test.context = {
+      snapshot: s,
+      initialOrganizationID: 'org',
+      drive: emptyDrive,
+      driveBusy: false,
+      demo: true,
+      loading: false,
+      fault: '',
+      busy: false,
+      notify: vi.fn(),
+      toast: null,
+    }
+    const render = () => hooks.render(() => App())
+    component(render(), 'Agenda').props.select('event')
+    return { render, s }
+  }
+  it('clears unrelated detail, chooses only matching wide-screen events and clears empty filters', () => {
+    const a = app()
+    component(a.render(), 'Agenda').props.setComponentFilter('other')
+    let tree = a.render()
+    if (layout === 'phone') expect(() => component(tree, 'EventView')).toThrow()
+    else expect(component(tree, 'EventView').props.event.id).toBe('other-event')
+    component(tree, 'Agenda').props.setComponentFilter('empty')
+    tree = a.render()
+    expect(component(tree, 'Agenda').props.selectedID).toBeNull()
+    expect(() => component(tree, 'EventView')).toThrow()
+    component(tree, 'Agenda').props.setComponentFilter('')
+    tree = a.render()
+    if (layout === 'phone') expect(() => component(tree, 'EventView')).toThrow()
+    else expect(component(tree, 'Agenda').props.selectedID).not.toBeNull()
+  })
+  it('retains a valid selection and explicit event navigation clears the filter', () => {
+    const a = app()
+    component(a.render(), 'Agenda').props.setComponentFilter('component')
+    let tree = a.render()
+    expect(component(tree, 'EventView').props.event.id).toBe('event')
+    component(tree, 'Agenda').props.setComponentFilter('other')
+    tree = a.render()
+    component(tree, 'SearchSheet').props.openEvent('event')
+    tree = a.render()
+    expect(component(tree, 'Agenda').props.componentFilter).toBe('')
+    expect(component(tree, 'EventView').props.event.id).toBe('event')
+  })
+  it('removes detail if synchronization reclassifies the selected event out of its filter', () => {
+    const a = app()
+    component(a.render(), 'Agenda').props.setComponentFilter('component')
+    a.render()
+    a.s.events = a.s.events.map((event) => ({ ...event, componentID: 'other' }))
+    const tree = a.render()
+    expect(component(tree, 'Agenda').props.selectedID).toBeNull()
+    expect(() => component(tree, 'EventView')).toThrow()
+  })
+})
+
+it('keeps PDF page changes, row-height edits and table-position edits renderable', async () => {
+  window.nexoDevice = 'iPhone'
+  const s = fixture(),
+    template = {
+      ...newTemplate('org'),
+      backgroundPDFData: 'synthetic-pdf',
+      tableTopOffset: 600,
+      rowHeight: 18,
+    },
+    hooks = new test.Hooks(),
+    notify = vi.fn()
+  s.templates = [template]
+  test.context = { mutate: vi.fn(), busy: false, notify, demo: true }
+  test.bridge.mockResolvedValue({
+    image: 'synthetic-image',
+    pages: [
+      { width: 320, height: 350 },
+      { width: 250, height: 350 },
+    ],
+  })
+  const render = () =>
+    component(
+      hooks.render(() => DocumentStudio({ s, orgID: 'org', initial: template, back: vi.fn() })),
+      'MobileStudio',
+    ).props
+  render()
+  await flush()
+  let studio = render()
+  studio.changePage(0)
+  studio = render()
+  expect(studio.draft.tableTopOffset).toBe(219)
+  studio.patch({ rowHeight: 80 })
+  studio = render()
+  expect(studio.draft.tableTopOffset).toBe(173)
+  studio.patch({ tableTopOffset: 600 })
+  studio = render()
+  expect(studio.draft.tableTopOffset).toBe(173)
+  studio.changePage(1)
+  studio = render()
+  expect(studio.draft.listPageIndex).toBe(0)
+  expect(studio.draft.tableTopOffset).toBe(173)
+  expect(notify).toHaveBeenCalledWith(
+    tr('El PDF no tiene una página donde pueda colocarse la lista.'),
+    true,
+  )
+})
+
+
+describe('Inline name editing', () => {
+  function editor(onSave = vi.fn().mockResolvedValue(undefined)) {
+    const hooks = new test.Hooks()
+    const render = () => hooks.render(() => InlineText({ value: 'Original', label: 'Name', onSave }))
+    find(render(), (element) => element.type === 'button').props.onClick()
+    find(render(), (element) => element.type === 'input').props.onChange({ target: { value: 'Renamed' } })
+    const input = () => find(render(), (element) => element.type === 'input')
+    const key = (name: string) => ({ key: name, preventDefault: vi.fn(), stopPropagation: vi.fn() })
+    return { render, input, key, onSave }
+  }
+
+  it('submits only once when Enter is followed by blur, and retries a rejected name', async () => {
+    let reject!: (error: Error) => void
+    const pending = new Promise<void>((_resolve, fail) => { reject = fail })
+    const save = vi.fn().mockReturnValueOnce(pending).mockResolvedValue(undefined)
+    const r = editor(save), input = r.input()
+    input.props.onKeyDown(r.key('Enter'))
+    input.props.onBlur()
+    expect(save).toHaveBeenCalledOnce()
+    expect(r.input().props.readOnly).toBe(true)
+    reject(new Error('Synthetic rename failed'))
+    await flush()
+    expect(r.input().props).toMatchObject({ value: 'Renamed', readOnly: false })
+    r.input().props.onKeyDown(r.key('Enter'))
+    await flush()
+    expect(save.mock.calls).toEqual([['Renamed'], ['Renamed']])
+    expect(find(r.render(), (element) => element.type === 'button')).toBeDefined()
+  })
+
+  it('Escape cancels without committing through a trailing blur callback', async () => {
+    const r = editor(), input = r.input()
+    input.props.onKeyDown(r.key('Escape'))
+    input.props.onBlur()
+    await flush()
+    expect(r.onSave).not.toHaveBeenCalled()
+    expect(find(r.render(), (element) => element.type === 'button').props.children).toBe('Original')
+  })
+
+  it('does not dismiss a pending rename as if Escape had canceled it', async () => {
+    let resolve!: () => void
+    const r = editor(vi.fn().mockReturnValue(new Promise<void>((done) => { resolve = done })))
+    const input = r.input()
+    input.props.onKeyDown(r.key('Enter'))
+    input.props.onKeyDown(r.key('Escape'))
+    expect(r.input().props).toMatchObject({ value: 'Renamed', readOnly: true })
+    resolve()
+    await flush()
+    expect(r.onSave).toHaveBeenCalledOnce()
+    expect(find(r.render(), (element) => element.type === 'button')).toBeDefined()
+  })
+})
+
+describe('Managed classification creation', () => {
+  it.each(['component', 'category', 'group'])(
+    'guards repeated %s submissions and keeps a rejected name for retry',
+    async (kind) => {
+      let reject!: (error: Error) => void
+      const pending = new Promise<void>((_resolve, fail) => { reject = fail })
+      const mutate = vi.fn().mockReturnValueOnce(pending).mockResolvedValue(fixture())
+      test.context = { mutate }
+      const s = fixture(), hooks = new test.Hooks()
+      const sheet = kind === 'group'
+        ? GroupsSheet({ s, orgID: 'org', open: true, close: vi.fn() })
+        : ComponentsSheet({ s, orgID: 'org', open: true, close: vi.fn() })
+      const label = tr(kind === 'group' ? 'Nuevo grupo' : kind === 'component' ? 'Nuevo componente' : 'Categoría')
+      const add = find(sheet, (element) => typeof element.type === 'function' && element.type.name === 'AddLine' && element.props.label === label)
+      const render = () => hooks.render(() => invoke(add))
+      render().props.onClick()
+      find(render(), (element) => element.type === 'input').props.onChange({ target: { value: 'Keep this name' } })
+      const form = render()
+      form.props.onSubmit({ preventDefault: vi.fn() })
+      form.props.onSubmit({ preventDefault: vi.fn() })
+      expect(mutate).toHaveBeenCalledOnce()
+      expect(find(render(), (element) => element.type === 'input').props.readOnly).toBe(true)
+      expect(find(render(), (element) => element.type === 'button').props.disabled).toBe(true)
+      reject(new Error('Synthetic creation failed'))
+      await flush()
+      expect(find(render(), (element) => element.type === 'input').props).toMatchObject({ value: 'Keep this name', readOnly: false })
+      render().props.onSubmit({ preventDefault: vi.fn() })
+      await flush()
+      expect(mutate).toHaveBeenCalledTimes(2)
+      expect(mutate.mock.calls[1][0]).toMatchObject({ name: 'Keep this name' })
+      expect(find(render(), (element) => element.type === 'input').props.value).toBe('')
+    },
+  )
+})
+
+
+describe('PDF preview input coherence', () => {
+  function studioFixture() {
+    window.nexoDevice = 'iPhone'
+    let s = fixture()
+    s.attendance[0].memberNameSnapshot = 'Ana'
+    const template = newTemplate('org'), hooks = new test.Hooks()
+    s.templates = [template]
+    test.context = { mutate: vi.fn(), notify: vi.fn(), demo: true, busy: false }
+    const render = () => component(hooks.render(() => DocumentStudio({
+      s, orgID: 'org', initial: template, eventID: 'event', back: vi.fn(),
+    })), 'MobileStudio').props
+    const update = (change: (value: typeof s) => typeof s) => { s = change(s) }
+    return { render, update }
+  }
+  const final = { token: 'old-pdf', image: 'old-image', pageCount: 2 }
+
+  it.each(['after-render', 'during-render'])(
+    'invalidates a PDF when attendance changes %s without losing template edits',
+    async (timing) => {
+      const r = studioFixture()
+      let complete!: (value: unknown) => void
+      test.bridge.mockImplementation(({ command }) => command === 'renderPDF'
+        ? new Promise((resolve) => { complete = resolve }) : Promise.resolve({ saved: true }))
+      r.render().patch({ headerTitle: 'Unsaved design' })
+      const request = r.render().render()
+      expect(test.bridge.mock.calls.find(([p]) => p.command === 'renderPDF')![0].entries[0].status).toBe('present')
+      if (timing === 'after-render') { complete(final); await request }
+      r.update((s) => ({ ...s, revision: s.revision + 1, attendance: [{ ...s.attendance[0], status: 'absent' }] }))
+      expect(r.render().entries[0].status).toBe('absent')
+      if (timing === 'during-render') { complete(final); await request }
+      const studio = r.render()
+      expect(studio.final).toBeNull()
+      expect(studio.rendering).toBe(false)
+      expect(studio.draft.headerTitle).toBe('Unsaved design')
+      expect(studio.dirty).toBe(true)
+      await studio.exportPDF()
+      expect(test.bridge.mock.calls.some(([p]) => p.command === 'exportPDF')).toBe(false)
+    },
+  )
+
+  it.each(['note', 'name', 'removed', 'event', 'organization'])(
+    'invalidates completed output after a relevant %s change', async (change) => {
+      const r = studioFixture()
+      test.bridge.mockResolvedValue(final)
+      await r.render().render()
+      expect(r.render().final).toEqual(final)
+      r.update((s) => ({ ...s, revision: s.revision + 1,
+        attendance: change === 'note' ? [{ ...s.attendance[0], note: 'Updated note' }]
+          : change === 'name' ? [{ ...s.attendance[0], memberNameSnapshot: 'Updated name' }]
+          : change === 'removed' ? [{ ...s.attendance[0], isVoided: true }] : s.attendance,
+        events: change === 'event' ? [{ ...s.events[0], title: 'Updated title' }] : s.events,
+        organizations: change === 'organization' ? [{ ...s.organizations[0], name: 'Updated organization' }] : s.organizations,
+      }))
+      expect(r.render().final).toBeNull()
+    },
+  )
+
+  it('does not discard an up-to-date PDF after an unrelated snapshot update', async () => {
+    const r = studioFixture()
+    test.bridge.mockResolvedValue(final)
+    await r.render().render()
+    const reorderKeys = <T extends object>(record: T) => Object.fromEntries(Object.entries(record).reverse()) as T
+    r.update((s) => ({ ...structuredClone(s), revision: s.revision + 1,
+      organizations: s.organizations.map(reorderKeys),
+      events: s.events.map(reorderKeys),
+      attendance: [...s.attendance.map(reorderKeys), { ...s.attendance[0], id: 'unrelated', eventID: 'another-event' }],
+    }))
+    expect(r.render().final).toEqual(final)
+  })
+
+  it('does not let a stale page request restore a PDF invalidated by incoming data', async () => {
+    const r = studioFixture()
+    let complete!: (value: unknown) => void
+    test.bridge.mockImplementation(({ command }) => command === 'renderPDF'
+      ? Promise.resolve(final) : new Promise((resolve) => { complete = resolve }))
+    await r.render().render()
+    const pageRequest = r.render().finalPage(1)
+    r.update((s) => ({ ...s, attendance: [{ ...s.attendance[0], status: 'absent' }] }))
+    r.render()
+    complete({ image: 'stale-page' })
+    await pageRequest
+    expect(r.render().final).toBeNull()
+    expect(r.render().rendering).toBe(false)
+  })
+})
+
+
+describe('Template element sizing controls', () => {
+  function editor(mobile: boolean) {
+    if (mobile) window.nexoDevice = 'iPhone'
+    const s = fixture(), template = newTemplate('org')
+    template.imageBlocks = [{ id: 'image', imageData: 'synthetic-png', x: 46, y: 46, width: 160, height: 20 }]
+    template.textBlocks = [{ id: 'text', text: 'Synthetic heading', x: 46, y: 46, width: 220, fontSize: 14 }]
+    s.templates = [template]
+    const mutate = vi.fn().mockResolvedValue(s), hooks = new test.Hooks(), mobileHooks = new test.Hooks()
+    test.context = { mutate, notify: vi.fn(), demo: true, busy: false }
+    const render = () => hooks.render(() => DocumentStudio({ s, orgID: 'org', initial: template, back: vi.fn() }))
+    const mobileElement = () => component(render(), 'MobileStudio')
+    const renderMobile = () => mobileHooks.render(() => invoke(mobileElement()))
+    const save = async () => {
+      if (mobile) await mobileElement().props.save()
+      else {
+        find(render(), (element) => element.type === 'button' && element.props.className === 'button compact').props.onClick()
+        await flush()
+      }
+      return mutate.mock.calls.at(-1)![0].entity
+    }
+    return { render, renderMobile, save }
+  }
+
+  it.each([false, true])('image resizing preserves a savable aspect ratio (mobile=%s)', async (mobile) => {
+    const r = editor(mobile)
+    if (mobile) {
+      component(r.renderMobile(), 'MobilePaper').props.onEdit('image', 'elements')
+      find(r.renderMobile(), (element) => typeof element.type === 'function' && element.type.name === 'Range' && element.props.label === tr('Ancho de imagen')).props.onChange(20)
+    } else {
+      find(r.render(), (element) => String(element.props.className).startsWith('paper-image-block')).props.onClick({ stopPropagation: vi.fn() })
+      const label = find(r.render(), (element) => element.type === 'label' && Array.isArray(element.props.children) && element.props.children[0] === tr('Ancho de imagen'))
+      find(label, (element) => element.type === 'input').props.onChange({ target: { value: '30' } })
+    }
+    const image = (await r.save()).imageBlocks[0]
+    expect(image.height).toBeGreaterThanOrEqual(20)
+    expect(image.width).toBeGreaterThanOrEqual(20)
+    expect(image.width / image.height).toBeCloseTo(8)
+  })
+
+  it('mobile text width respects the native 60-point minimum', async () => {
+    const r = editor(true)
+    component(r.renderMobile(), 'MobilePaper').props.onEdit('text', 'elements')
+    const width = find(r.renderMobile(), (element) => typeof element.type === 'function' && element.type.name === 'Range' && element.props.label === tr('Ancho'))
+    width.props.onChange(20)
+    const text = (await r.save()).textBlocks[0]
+    expect(text.width).toBeGreaterThanOrEqual(60)
+    expect(width.props.min).toBe(60)
+  })
+})
+
+
+describe('Template save and import ordering', () => {
+  function editor() {
+    window.nexoDevice = 'iPhone'
+    const s = fixture(), template = newTemplate('org')
+    template.imageBlocks = [{ id: 'old-image', imageData: 'old', x: 46, y: 46, width: 160, height: 20 }]
+    s.templates = [template]
+    let complete!: () => void, reject!: (error: Error) => void
+    const mutate = vi.fn().mockImplementation(() => new Promise<void>((resolve, fail) => { complete = resolve; reject = fail }))
+    const notify = vi.fn()
+    test.context = { mutate, notify, demo: true, busy: false }
+    const hooks = new test.Hooks()
+    const render = () => component(hooks.render(() => DocumentStudio({ s, orgID: 'org', initial: template, back: vi.fn() })), 'MobileStudio').props
+    return { render, mutate, notify, complete: () => complete(), reject: () => reject(new Error('Synthetic save failed')) }
+  }
+  it.each(['save', 'saveCopy'])('coalesces repeated %s callbacks and waits for the original save', async (action) => {
+    const r = editor(), studio = r.render(), settled = vi.fn()
+    const first = studio[action](), repeated = studio[action]()
+    repeated.then(settled)
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(settled).not.toHaveBeenCalled()
+    expect(r.render().busy).toBe(true)
+    r.complete()
+    await Promise.all([first, repeated])
+    expect(settled).toHaveBeenCalledOnce()
+    expect(r.render().busy).toBe(false)
+    if (action === 'saveCopy') expect(r.render().draft.name.split(tr('· copia'))).toHaveLength(2)
+  })
+  it('shares one failed save with overlapping save/copy callers and permits a deliberate retry', async () => {
+    const r = editor(), studio = r.render()
+    studio.patch({ headerTitle: 'Keep this edit' })
+    const first = r.render().save(), copy = r.render().saveCopy()
+    const results = Promise.allSettled([first, copy])
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    r.reject()
+    expect((await results).map((result) => result.status)).toEqual(['rejected', 'rejected'])
+    expect(r.render().draft.headerTitle).toBe('Keep this edit')
+    expect(r.render().busy).toBe(false)
+    const retry = r.render().save()
+    await flush()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    r.complete()
+    await retry
+    expect(r.render().dirty).toBe(false)
+  })
+  it('appends an imported image to the latest list without resurrecting removed images', async () => {
+    const r = editor()
+    let complete!: (value: unknown) => void
+    test.bridge.mockImplementation(() => new Promise((resolve) => { complete = resolve }))
+    const pending = r.render().importImage()
+    r.render().patch({ imageBlocks: [] })
+    complete({ data: 'new-image', width: 160, height: 20 })
+    await pending
+    expect(r.render().draft.imageBlocks).toHaveLength(1)
+    expect(r.render().draft.imageBlocks[0].imageData).toBe('new-image')
+  })
+  it('preserves both out-of-order image imports instead of replacing the first completed image', async () => {
+    const r = editor(), complete: ((value: unknown) => void)[] = []
+    test.bridge.mockImplementation(() => new Promise((resolve) => { complete.push(resolve) }))
+    const first = r.render().importImage(), second = r.render().importImage()
+    complete[1]({ data: 'second-image', width: 100, height: 100 })
+    await second
+    complete[0]({ data: 'first-image', width: 100, height: 100 })
+    await first
+    expect(r.render().draft.imageBlocks.map((image: { imageData: string }) => image.imageData)).toEqual(['old', 'second-image', 'first-image'])
+  })
+  it('fits current text and table edits when a PDF import completes', async () => {
+    const r = editor()
+    let complete!: (value: unknown) => void
+    test.bridge.mockImplementation(() => new Promise((resolve) => { complete = resolve }))
+    const pending = r.render().importPDF()
+    r.render().addText()
+    r.render().patch({ rowHeight: 80, tableTopOffset: 600 })
+    complete({ data: 'pdf', listPageIndex: 0, pages: [{ width: 320, height: 350 }] })
+    await pending
+    const draft = r.render().draft
+    expect(draft.textBlocks).toHaveLength(1)
+    expect(draft.rowHeight).toBe(80)
+    expect(draft.tableTopOffset).toBe(173)
+    expect(draft.textBlocks[0].x + draft.textBlocks[0].width).toBeLessThanOrEqual(320)
+  })
+  it('retains repeated text additions before a rerender', () => {
+    const r = editor(), studio = r.render()
+    const first = studio.addText(), second = studio.addText()
+    expect(r.render().draft.textBlocks.map((text: { id: string }) => text.id)).toEqual([first, second])
+  })
+  it('keeps the most recently requested PDF when imports finish out of order', async () => {
+    const r = editor(), complete: ((value: unknown) => void)[] = []
+    test.bridge.mockImplementation(({ command }) => command === 'importPDF'
+      ? new Promise((resolve) => { complete.push(resolve) }) : Promise.resolve({ image: 'preview', pages: [{ width: 612, height: 792 }] }))
+    const first = r.render().importPDF(), second = r.render().importPDF()
+    complete[1]({ data: 'new-pdf', listPageIndex: 0, pages: [{ width: 612, height: 792 }] })
+    await second
+    complete[0]({ data: 'old-pdf', listPageIndex: 0, pages: [{ width: 612, height: 792 }] })
+    await first
+    expect(r.render().draft.backgroundPDFData).toBe('new-pdf')
+  })
+  it('does not apply a delayed PDF after the user chose blank paper', async () => {
+    const r = editor()
+    let complete!: (value: unknown) => void
+    test.bridge.mockImplementation(() => new Promise((resolve) => { complete = resolve }))
+    const pending = r.render().importPDF()
+    r.render().patch({ backgroundPDFData: undefined, listPageIndex: 0 })
+    complete({ data: 'old-pdf', listPageIndex: 0, pages: [{ width: 612, height: 792 }] })
+    await pending
+    expect(r.render().draft.backgroundPDFData).toBeUndefined()
+  })
+  it.each(['undo', 'redo'])('%s cancels an older pending paper replacement', async (action) => {
+    const r = editor()
+    let complete!: (value: unknown) => void
+    test.bridge.mockImplementation(({ command }) => command === 'importPDF'
+      ? new Promise((resolve) => { complete = resolve }) : Promise.resolve({ image: 'preview', pages: [{ width: 612, height: 792 }] }))
+    r.render().patch({ backgroundPDFData: 'chosen-paper' })
+    if (action === 'redo') r.render().undo()
+    const pending = r.render().importPDF()
+    r.render()[action]()
+    const expected = r.render().draft.backgroundPDFData
+    complete({ data: 'stale-paper', listPageIndex: 0, pages: [{ width: 612, height: 792 }] })
+    await pending
+    expect(r.render().draft.backgroundPDFData).toBe(expected)
+  })
+  it('does not report a superseded PDF import failure as a current error', async () => {
+    const r = editor()
+    let reject!: (error: Error) => void
+    test.bridge.mockImplementation(() => new Promise((_resolve, fail) => { reject = fail }))
+    const pending = r.render().importPDF()
+    r.render().patch({ backgroundPDFData: undefined })
+    reject(new Error('Superseded picker failure'))
+    await pending
+    expect(r.notify).not.toHaveBeenCalled()
+  })
+  it.each(['importImage', 'importPDF'])('canceled %s leaves the latest draft alone', async (action) => {
+    const r = editor()
+    let complete!: (value: unknown) => void
+    test.bridge.mockImplementation(() => new Promise((resolve) => { complete = resolve }))
+    const pending = r.render()[action]()
+    r.render().addText()
+    const expected = r.render().draft
+    complete({ cancelled: true })
+    await pending
+    expect(r.render().draft).toEqual(expected)
+  })
+})
+
+
+describe('Startup draft recovery barrier', () => {
+  function app() {
+    const s = fixture(), hooks = new test.Hooks(), notify = vi.fn(), mutate = vi.fn()
+    const context = { snapshot: s, initialOrganizationID: 'org', drive: emptyDrive, driveBusy: false,
+      demo: false, loading: false, fault: '', busy: false, notify, mutate, toast: null, reload: vi.fn().mockResolvedValue(undefined) }
+    test.context = context
+    const requests: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = []
+    test.bridge.mockImplementation(({ command }) => command === 'recoverDraft'
+      ? new Promise((resolve, reject) => requests.push({ resolve, reject })) : Promise.resolve({}))
+    const render = () => hooks.render(() => App())
+    const activeEditor = () => find(render(), (element) => !!element.props.initial && !!element.props.back)
+    const retry = () => find(render(), (element) => element.type === 'button' && element.props.children === tr('Reintentar')).props.onClick()
+    const noDraftWrites = () => expect(test.bridge.mock.calls.some(([request]) => request.command === 'draftState')).toBe(false)
+    return { render, activeEditor, retry, noDraftWrites, requests, context, hooks, notify, mutate }
+  }
+  const recovered = () => ({ template: { ...newTemplate('org'), name: 'Recovered work' }, organizationID: 'org' })
+
+  it('keeps editor entry unavailable until the saved draft is recovered', async () => {
+    const r = app()
+    const tree = r.render()
+    expect(() => component(tree, 'SearchSheet')).toThrow()
+    expect(() => r.activeEditor()).toThrow()
+    r.noDraftWrites()
+    const draft = recovered()
+    r.requests[0].resolve(draft)
+    await flush()
+    expect(r.activeEditor().props.initial).toEqual(draft.template)
+    expect(r.notify).toHaveBeenCalledWith(tr('Borrador recuperado'))
+  })
+  it('unlocks a workspace only after confirming that no saved draft exists', async () => {
+    const r = app()
+    r.render()
+    r.requests[0].resolve({})
+    await flush()
+    expect(component(r.render(), 'SearchSheet')).toBeDefined()
+    expect(() => r.activeEditor()).toThrow()
+    r.noDraftWrites()
+  })
+  it('preserves a failed read and lets an explicit retry recover the original draft', async () => {
+    const r = app()
+    r.render()
+    r.requests[0].reject(new Error('Synthetic temporary read failure'))
+    await flush()
+    expect(() => component(r.render(), 'SearchSheet')).toThrow()
+    expect(find(r.render(), (element) => element.props.role === 'alert')).toBeDefined()
+    r.noDraftWrites()
+    r.retry()
+    r.render()
+    expect(r.requests).toHaveLength(2)
+    const draft = recovered()
+    r.requests[1].resolve(draft)
+    await flush()
+    expect(r.activeEditor().props.initial).toEqual(draft.template)
+  })
+  it('ignores an old recovery result in demo mode and reads again after returning', async () => {
+    const r = app()
+    r.render()
+    r.context.demo = true
+    expect(component(r.render(), 'SearchSheet')).toBeDefined()
+    r.requests[0].resolve(recovered())
+    await flush()
+    expect(() => r.activeEditor()).toThrow()
+    expect(r.notify).not.toHaveBeenCalled()
+    r.context.demo = false
+    r.render()
+    expect(r.requests).toHaveLength(2)
+    r.requests[1].resolve({})
+    await flush()
+    expect(component(r.render(), 'SearchSheet')).toBeDefined()
+    r.noDraftWrites()
+  })
+  it('does not apply a recovery response after the app unmounts', async () => {
+    const r = app()
+    r.render()
+    r.hooks.dispose()
+    r.requests[0].resolve(recovered())
+    await flush()
+    expect(r.notify).not.toHaveBeenCalled()
+    r.noDraftWrites()
+  })
+  it('keeps an orphan draft blocked and offers backup recovery instead of clearing it', async () => {
+    const r = app()
+    r.context.snapshot = { ...r.context.snapshot, organizations: [] }
+    r.render()
+    r.requests[0].resolve(recovered())
+    await flush()
+    expect(find(r.render(), (element) => element.props.role === 'alert')).toBeDefined()
+    expect(find(r.render(), (element) => element.type === 'button' && element.props.children === tr('Importar copia'))).toBeDefined()
+    expect(() => r.activeEditor()).toThrow()
+    r.noDraftWrites()
+  })
+  it('checks the latest workspace before recovering a draft and can explicitly restore its trashed space', async () => {
+    const r = app()
+    r.render()
+    r.context.snapshot = { ...r.context.snapshot, organizations: [{ ...r.context.snapshot.organizations[0], deletedAt: '2026-10-24T00:00:00Z' }] }
+    r.render()
+    r.requests[0].resolve(recovered())
+    await flush()
+    expect(() => r.activeEditor()).toThrow()
+    r.noDraftWrites()
+    r.mutate.mockImplementation(async () => {
+      r.context.snapshot = { ...r.context.snapshot, organizations: [{ ...r.context.snapshot.organizations[0], deletedAt: undefined }] }
+      return r.context.snapshot
+    })
+    find(r.render(), (element) => element.type === 'button' && element.props.children === tr('Restaurar {0}', 'Synthetic')).props.onClick()
+    await flush()
+    r.render()
+    expect(r.mutate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'setOrganizationDeleted', organizationID: 'org', deleted: false, expectedDeleted: true }))
+    expect(r.requests).toHaveLength(2)
+    const draft = recovered()
+    r.requests[1].resolve(draft)
+    await flush()
+    expect(r.activeEditor().props.initial).toEqual(draft.template)
+  })
+  it.each(['missing-template', 'missing-id', 'wrong-space'])('preserves a malformed %s draft instead of starting another editor', async (kind) => {
+    const r = app(), draft = recovered()
+    const malformed = kind === 'missing-template' ? { organizationID: 'org' }
+      : { ...draft, template: { ...draft.template, ...(kind === 'missing-id' ? { id: '' } : { organizationID: 'different-space' }) } }
+    r.render()
+    r.requests[0].resolve(malformed)
+    await flush()
+    expect(find(r.render(), (element) => element.props.role === 'alert')).toBeDefined()
+    expect(() => component(r.render(), 'SearchSheet')).toThrow()
+    expect(() => r.activeEditor()).toThrow()
+    r.noDraftWrites()
+  })
+  it('keeps a draft retryable when restoring its trashed space fails', async () => {
+    const r = app()
+    r.context.snapshot = { ...r.context.snapshot, organizations: [{ ...r.context.snapshot.organizations[0], deletedAt: '2026-10-24T00:00:00Z' }] }
+    r.render()
+    r.requests[0].resolve(recovered())
+    await flush()
+    r.mutate.mockRejectedValue(new Error('Synthetic restore rejected'))
+    const button = find(r.render(), (element) => element.type === 'button' && element.props.children === tr('Restaurar {0}', 'Synthetic'))
+    button.props.onClick()
+    button.props.onClick()
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(find(r.render(), (element) => element.props.role === 'alert').props.children).toBe('Synthetic restore rejected')
+    r.retry()
+    r.render()
+    expect(r.requests).toHaveLength(2)
+    r.noDraftWrites()
+  })
+  it('retries an orphan draft after an explicitly imported workspace makes its space available', async () => {
+    const r = app(), saved = r.context.snapshot
+    r.context.snapshot = { ...saved, organizations: [] }
+    r.context.reload.mockImplementation(async () => { r.context.snapshot = saved })
+    r.render()
+    r.requests[0].resolve(recovered())
+    await flush()
+    const previous = test.bridge.getMockImplementation()!
+    test.bridge.mockImplementation((request) => request.command === 'restoreWorkspace'
+      ? Promise.resolve({ restored: true }) : previous(request))
+    find(r.render(), (element) => element.type === 'button' && element.props.children === tr('Importar copia')).props.onClick()
+    await flush()
+    r.render()
+    expect(r.context.reload).toHaveBeenCalledOnce()
+    expect(r.requests).toHaveLength(2)
+    const draft = recovered()
+    r.requests[1].resolve(draft)
+    await flush()
+    expect(r.activeEditor().props.initial).toEqual(draft.template)
+    r.noDraftWrites()
+  })
+  it('does not allow keyboard document creation to bypass pending recovery', async () => {
+    const r = app()
+    r.render()
+    for (const key of ['3', 'n']) {
+      window.dispatchEvent(Object.assign(new Event('keydown', { cancelable: true }), { key, metaKey: true }))
+      r.render()
+    }
+    r.requests[0].resolve({})
+    await flush()
+    expect(() => r.activeEditor()).toThrow()
+    r.noDraftWrites()
+  })
+})
+
+
+describe('Space rename lifecycle', () => {
+  function editor() {
+    const s = fixture(), appHooks = new test.Hooks(), switchHooks = new test.Hooks()
+    s.organizations.push({ ...s.organizations[0], id: 'other-org', name: 'Other space' })
+    let reject!: (error: Error) => void, resolve!: () => void
+    const mutate = vi.fn().mockImplementation(() => new Promise<void>((done, fail) => { resolve = done; reject = fail }))
+    test.context = { snapshot: s, initialOrganizationID: 'org', drive: emptyDrive, driveBusy: false,
+      demo: true, loading: false, fault: '', busy: false, notify: vi.fn(), mutate, toast: null }
+    const app = () => appHooks.render(() => App())
+    const switcher = component(app(), 'SpaceSwitcher')
+    const render = () => switchHooks.render(() => invoke(switcher))
+    find(render(), (element) => typeof element.type === 'function' && element.type.name === 'MenuItem' && element.props.children === tr('Renombrar')).props.onClick()
+    find(render(), (element) => element.type === 'input').props.onChange({ target: { value: 'Keep typed name' } })
+    const input = () => find(render(), (element) => element.type === 'input')
+    const escape = () => ({ key: 'Escape', preventDefault: vi.fn(), stopPropagation: vi.fn() })
+    return { app, switcher, render, input, escape, mutate, resolve: () => resolve(), reject: () => reject(new Error('Synthetic rename failed')) }
+  }
+  it('submits once before rerender and keeps the pending name read-only', async () => {
+    const r = editor(), form = r.render()
+    form.props.onSubmit({ preventDefault: vi.fn() })
+    form.props.onSubmit({ preventDefault: vi.fn() })
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.input().props.readOnly).toBe(true)
+    r.resolve()
+    await flush()
+    expect(() => r.input()).toThrow()
+  })
+  it('retains a rejected name after submit/blur and supports a deliberate retry', async () => {
+    const r = editor(), form = r.render()
+    form.props.onSubmit({ preventDefault: vi.fn() })
+    find(form, (element) => element.type === 'input').props.onBlur()
+    r.reject()
+    await flush()
+    expect(r.input().props).toMatchObject({ value: 'Keep typed name', readOnly: false })
+    r.render().props.onSubmit({ preventDefault: vi.fn() })
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    expect(r.mutate.mock.calls[1][0]).toMatchObject({ kind: 'rename', entity: 'organization', id: 'org', name: 'Keep typed name' })
+    r.resolve()
+    await flush()
+    expect(() => r.input()).toThrow()
+  })
+  it('does not submit a rename through an old form callback after Escape', () => {
+    const r = editor(), form = r.render()
+    r.input().props.onKeyDown(r.escape())
+    form.props.onSubmit({ preventDefault: vi.fn() })
+    expect(r.mutate).not.toHaveBeenCalled()
+    expect(() => r.input()).toThrow()
+  })
+  it('does not present an outstanding rename as canceled by Escape', async () => {
+    const r = editor(), form = r.render()
+    form.props.onSubmit({ preventDefault: vi.fn() })
+    r.input().props.onKeyDown(r.escape())
+    expect(r.input().props.readOnly).toBe(true)
+    r.reject()
+    await flush()
+    expect(r.input().props.value).toBe('Keep typed name')
+  })
+  it('still allows blur to cancel an unsubmitted name', () => {
+    const r = editor()
+    r.input().props.onBlur()
+    expect(r.mutate).not.toHaveBeenCalled()
+    expect(() => r.input()).toThrow()
+  })
+  it('gives each active space its own rename component identity', () => {
+    const r = editor()
+    expect(r.switcher.key).toBe('org')
+    r.switcher.props.enter('other-org')
+    const next = component(r.app(), 'SpaceSwitcher')
+    expect(next.key).toBe('other-org')
+    expect(next.props.current).toMatchObject({ id: 'other-org', name: 'Other space' })
+  })
+})
+
+function classificationChip(
+  kind: "component" | "category",
+  mutate = vi.fn().mockResolvedValue(fixture()),
+) {
+  const s = fixture();
+  s.categories = [
+    { id: "category", componentID: "component", name: "Synthetic category" },
+  ];
+  s.events[0].categoryID = "category";
+  const form = eventForm(s, "edit", mutate),
+    hooks = new test.Hooks();
+  const render = () =>
+    hooks.render(() =>
+      invoke(
+        find(
+          form.render(),
+          (element) =>
+            typeof element.type === "function" &&
+            element.type.name === "NewChip" &&
+            element.props.label ===
+              tr(kind === "component" ? "Otro" : "Categoría"),
+        ),
+      ),
+    );
+  const input = () => find(render(), (element) => element.type === "input");
+  const open = (name: string) => {
+    render().props.onClick();
+    input().props.onChange({ target: { value: name } });
+  };
+  return { render, input, open, mutate, form, s };
+}
+
+describe("Event classification cancellation lifecycle", () => {
+  it.each(["component", "category"] as const)(
+    "Escape cancels %s creation before trailing blur or Enter",
+    async (kind) => {
+      const chip = classificationChip(kind);
+      chip.open("Do not create");
+      const input = chip.input();
+      input.props.onKeyDown({ key: "Escape", stopPropagation: vi.fn() });
+      input.props.onBlur();
+      input.props.onKeyDown({ key: "Enter", preventDefault: vi.fn() });
+      await flush();
+      expect(chip.mutate).not.toHaveBeenCalled();
+      expect(chip.render().type).toBe("button");
+      chip.render().props.onClick();
+      expect(chip.input().props.value).toBe("");
+    },
+  );
+
+  it("does not present a submitted creation as canceled, and keeps its rejected name retryable", async () => {
+    let reject!: (error: Error) => void;
+    const pending = new Promise<void>((_resolve, fail) => {
+      reject = fail;
+    });
+    const chip = classificationChip(
+      "component",
+      vi.fn().mockReturnValueOnce(pending).mockResolvedValue(fixture()),
+    );
+    chip.open("Keep rejected name");
+    const input = chip.input();
+    input.props.onKeyDown({ key: "Enter", preventDefault: vi.fn() });
+    input.props.onKeyDown({ key: "Escape", stopPropagation: vi.fn() });
+    expect(chip.input().props).toMatchObject({
+      value: "Keep rejected name",
+      readOnly: true,
+    });
+    reject(new Error("Synthetic creation failed"));
+    await flush();
+    expect(chip.input().props).toMatchObject({
+      value: "Keep rejected name",
+      readOnly: false,
+    });
+    chip.input().props.onKeyDown({ key: "Enter", preventDefault: vi.fn() });
+    await flush();
+    expect(chip.mutate).toHaveBeenCalledTimes(2);
+    expect(chip.mutate.mock.calls[1][0].name).toBe("Keep rejected name");
+    expect(chip.render().type).toBe("button");
+  });
+
+  it("ignores a retained input callback after successful creation closes the editor", async () => {
+    const chip = classificationChip("component");
+    chip.open("Create once");
+    const input = chip.input();
+    input.props.onKeyDown({ key: "Enter", preventDefault: vi.fn() });
+    await flush();
+    expect(chip.render().type).toBe("button");
+    input.props.onBlur();
+    await flush();
+    expect(chip.mutate).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Event classification asynchronous choice preservation", () => {
+  it("ignores old-session callbacks after a canceled classification input reopens", async () => {
+    const chip = classificationChip("component");
+    chip.open("Canceled name");
+    const old = chip.input();
+    old.props.onKeyDown({ key: "Escape", stopPropagation: vi.fn() });
+    chip.open("Current name");
+    old.props.onChange({ target: { value: "Stale value" } });
+    old.props.onBlur();
+    old.props.onKeyDown({ key: "Escape", stopPropagation: vi.fn() });
+    await flush();
+    expect(chip.mutate).not.toHaveBeenCalled();
+    expect(chip.input().props.value).toBe("Current name");
+  });
+
+  it.each(["component", "category-component", "category-category"] as const)(
+    "retains newer explicit selection after pending %s creation",
+    async (choice) => {
+      let complete!: (value: ReturnType<typeof fixture>) => void;
+      const pending = new Promise<ReturnType<typeof fixture>>((resolve) => {
+        complete = resolve;
+      });
+      const mutate = vi
+        .fn()
+        .mockReturnValueOnce(pending)
+        .mockResolvedValue(fixture());
+      const chip = classificationChip(
+        choice === "component" ? "component" : "category",
+        mutate,
+      );
+      chip.s.components.push({
+        id: "other-component",
+        organizationID: "org",
+        name: "Other component",
+      });
+      chip.s.categories.push({
+        id: "other-category",
+        componentID: "component",
+        name: "Other category",
+      });
+      chip.open("Created classification");
+      chip.input().props.onKeyDown({ key: "Enter", preventDefault: vi.fn() });
+      find(
+        chip.form.render(),
+        (element) =>
+          element.type === "button" &&
+          element.props.children ===
+            (choice === "category-category"
+              ? "Other category"
+              : "Other component"),
+      ).props.onClick();
+      complete(chip.s);
+      await flush();
+      await chip.form.render().props.onSubmit({ preventDefault: vi.fn() });
+      const saved = mutate.mock.calls[1][0].entity;
+      expect(saved.componentID).toBe(
+        choice === "category-category" ? "component" : "other-component",
+      );
+      expect(saved.categoryID).toBe(
+        choice === "category-category" ? "other-category" : undefined,
+      );
+    },
+  );
+
+  it("scopes an unsaved category input to its selected component", () => {
+    const chip = classificationChip("category");
+    chip.s.components.push({
+      id: "other-component",
+      organizationID: "org",
+      name: "Other component",
+    });
+    const category = () =>
+      find(
+        chip.form.render(),
+        (element) =>
+          typeof element.type === "function" &&
+          element.type.name === "NewChip" &&
+          element.props.label === tr("Categoría"),
+      );
+    expect(category().key).toBe("component");
+    find(
+      chip.form.render(),
+      (element) =>
+        element.type === "button" &&
+        element.props.children === "Other component",
+    ).props.onClick();
+    expect(category().key).toBe("other-component");
+  });
+});
+
+function rosterPicker() {
+  const s = fixture(),
+    eventHooks = new test.Hooks(),
+    hooks = new test.Hooks();
+  s.events[0].volunteerCapacity = 2;
+  s.members.push({
+    id: "available",
+    organizationID: "org",
+    name: "Available",
+    isActive: true,
+  });
+  let mode: "list" | "volunteers" | null = "list",
+    event = s.events[0];
+  const requests: {
+    resolve: (value: unknown) => void;
+    reject: (error: Error) => void;
+  }[] = [];
+  const mutate = vi
+    .fn()
+    .mockImplementation(
+      () =>
+        new Promise((resolve, reject) => requests.push({ resolve, reject })),
+    );
+  const close = vi.fn(() => {
+    mode = null;
+  });
+  test.context = { mutate, notify: vi.fn(), busy: false };
+  const original = component(
+    eventHooks.render(() =>
+      EventView({
+        s,
+        event,
+        edit: vi.fn(),
+        document: vi.fn(),
+        openMember: vi.fn(),
+      }),
+    ),
+    "RosterPicker",
+  );
+  const render = () =>
+    hooks.render(() =>
+      invoke({
+        ...original,
+        props: { ...original.props, s, mode, event, close },
+      }),
+    );
+  const input = () => find(render(), (element) => element.type === "input");
+  const query = (value: string) =>
+    input().props.onChange({ target: { value } });
+  const add = () =>
+    find(
+      render(),
+      (element) => element.props.className === "nx-picker-row new",
+    );
+  const submit = () =>
+    find(
+      render(),
+      (element) =>
+        element.type === "button" &&
+        element.props.className === "nx-button primary",
+    );
+  const option = () =>
+    find(render(), (element) => element.props.role === "option");
+  return {
+    s,
+    render,
+    input,
+    query,
+    add,
+    submit,
+    option,
+    mutate,
+    close,
+    resolve: (index = 0) => requests[index].resolve(s),
+    reject: (index = 0) =>
+      requests[index].reject(new Error("Synthetic picker failure")),
+    mode: (next: typeof mode) => {
+      mode = next;
+      render();
+    },
+    event: () => {
+      event = { ...event, id: "next-event", title: "Next event" };
+      render();
+    },
+    dispose: () => hooks.dispose(),
+  };
+}
+
+describe("Roster picker request and session lifecycle", () => {
+  it("creates only one person for repeated Enter and add callbacks", async () => {
+    const r = rosterPicker();
+    r.query("New synthetic person");
+    const input = r.input(),
+      add = r.add();
+    input.props.onKeyDown({ key: "Enter", preventDefault: vi.fn() });
+    add.props.onClick();
+    expect(r.mutate).toHaveBeenCalledOnce();
+    expect(r.input().props.readOnly).toBe(true);
+    r.resolve();
+    await flush();
+    expect(r.input().props.value).toBe("");
+    expect(r.submit().props.disabled).toBe(false);
+  });
+  it("submits the selected roster once before rerender", async () => {
+    const r = rosterPicker();
+    r.option().props.onClick();
+    const submit = r.submit();
+    submit.props.onClick();
+    submit.props.onClick();
+    expect(r.mutate).toHaveBeenCalledOnce();
+    r.resolve();
+    await flush();
+    expect(r.close).toHaveBeenCalledOnce();
+  });
+  it.each(["add-first", "roster-first"])(
+    "serializes person creation and roster submission: %s",
+    (order) => {
+      const r = rosterPicker();
+      r.option().props.onClick();
+      r.query("New synthetic person");
+      const add = r.add(),
+        submit = r.submit();
+      if (order === "add-first") {
+        add.props.onClick();
+        submit.props.onClick();
+      } else {
+        submit.props.onClick();
+        add.props.onClick();
+      }
+      expect(r.mutate).toHaveBeenCalledOnce();
+      expect(r.submit().props.disabled).toBe(true);
+    },
+  );
+  it("retains a failed new-person name and permits a deliberate retry", async () => {
+    const r = rosterPicker();
+    r.query("Retry person");
+    r.add().props.onClick();
+    r.reject();
+    await flush();
+    expect(r.input().props).toMatchObject({
+      value: "Retry person",
+      readOnly: false,
+    });
+    expect(
+      find(r.render(), (element) => element.props.role === "alert").props
+        .children,
+    ).toBe("Synthetic picker failure");
+    r.add().props.onClick();
+    expect(r.mutate).toHaveBeenCalledTimes(2);
+    expect(r.mutate.mock.calls[1][0]).toMatchObject({
+      kind: "addMember",
+      name: "Retry person",
+    });
+    r.resolve(1);
+    await flush();
+    expect(r.submit().props.disabled).toBe(false);
+  });
+  it("retains a rejected roster selection for retry without closing the picker", async () => {
+    const r = rosterPicker();
+    r.option().props.onClick();
+    r.submit().props.onClick();
+    r.reject();
+    await flush();
+    expect(r.close).not.toHaveBeenCalled();
+    expect(r.option().props["aria-selected"]).toBe(true);
+    expect(r.submit().props.disabled).toBe(false);
+    r.submit().props.onClick();
+    expect(r.mutate).toHaveBeenCalledTimes(2);
+    expect(r.mutate.mock.calls[1][0]).toMatchObject({
+      kind: "roster",
+      memberIDs: ["available"],
+    });
+  });
+  it("does not imply a pending write was canceled or accept selection/search edits while it is pending", () => {
+    const r = rosterPicker();
+    r.option().props.onClick();
+    const option = r.option(),
+      input = r.input();
+    r.submit().props.onClick();
+    input.props.onChange({ target: { value: "Later query" } });
+    option.props.onClick();
+    component(r.render(), "Sheet").props.onClose();
+    find(
+      r.render(),
+      (element) =>
+        element.type === "button" && element.props.children === tr("Cancelar"),
+    ).props.onClick();
+    expect(r.close).not.toHaveBeenCalled();
+    expect(r.input().props).toMatchObject({ value: "", readOnly: true });
+    expect(r.option().props).toMatchObject({
+      disabled: true,
+      "aria-selected": true,
+    });
+  });
+  it("ignores retained submit and add callbacks after an idle dismissal", () => {
+    const r = rosterPicker();
+    r.option().props.onClick();
+    r.query("Canceled person");
+    const submit = r.submit(),
+      add = r.add();
+    component(r.render(), "Sheet").props.onClose();
+    submit.props.onClick();
+    add.props.onClick();
+    expect(r.close).toHaveBeenCalledOnce();
+    expect(r.mutate).not.toHaveBeenCalled();
+  });
+  it.each(["mode", "event"] as const)(
+    "does not apply an old person creation to a newer %s session",
+    async (change) => {
+      const r = rosterPicker();
+      r.query("Old person");
+      r.add().props.onClick();
+      if (change === "mode") r.mode("volunteers");
+      else r.event();
+      r.query("Current query");
+      r.resolve();
+      await flush();
+      expect(r.input().props.value).toBe("Current query");
+      expect(r.submit().props.disabled).toBe(true);
+      expect(r.close).not.toHaveBeenCalled();
+    },
+  );
+  it("ignores a superseded request error without unlocking a newer request", async () => {
+    const r = rosterPicker();
+    r.query("Old person");
+    r.add().props.onClick();
+    r.mode("volunteers");
+    r.query("Current person");
+    r.add().props.onClick();
+    r.reject();
+    await flush();
+    expect(() =>
+      find(r.render(), (element) => element.props.role === "alert"),
+    ).toThrow();
+    expect(r.input().props).toMatchObject({
+      value: "Current person",
+      readOnly: true,
+    });
+    r.resolve(1);
+    await flush();
+    expect(r.input().props.readOnly).toBe(false);
+  });
+  it("does not close a newer screen after the submitting picker unmounts", async () => {
+    const r = rosterPicker();
+    r.option().props.onClick();
+    r.submit().props.onClick();
+    r.dispose();
+    r.resolve();
+    await flush();
+    expect(r.close).not.toHaveBeenCalled();
+  });
+});
+
+
+function pendingForm(kind: "event" | "member" | "period") {
+  const s = fixture(),
+    outerHooks = new test.Hooks(),
+    hooks = new test.Hooks(),
+    completed = vi.fn();
+  s.groups.push({
+    id: "group",
+    organizationID: "org",
+    name: "Synthetic group",
+  });
+  let open = true,
+    orgID = "org",
+    retained: Element | undefined;
+  const close = vi.fn(() => {
+    open = false;
+  });
+  const requests: {
+    resolve: (value: unknown) => void;
+    reject: (error: Error) => void;
+  }[] = [];
+  const mutate = vi
+    .fn()
+    .mockImplementation(
+      () =>
+        new Promise((resolve, reject) => requests.push({ resolve, reject })),
+    );
+  test.context = { mutate, busy: false };
+  const outer = () =>
+    outerHooks.render(() =>
+      kind === "event"
+        ? EventForm({
+            s,
+            orgID,
+            draft: open ? { mode: "edit", event: s.events[0] } : null,
+            close,
+            saved: completed,
+          })
+        : SimpleForm({
+            s,
+            orgID,
+            kind: open ? kind : null,
+            close,
+            created: completed,
+          }),
+    );
+  const render = () => {
+    const tree = outer();
+    if (open)
+      retained = component(
+        tree,
+        kind === "event" ? "EventFormBody" : "SimpleBody",
+      );
+    return hooks.render(() => invoke(retained!));
+  };
+  const input = () =>
+    find(
+      render(),
+      (element) =>
+        element.type === "input" &&
+        element.props.className === "nx-title-field",
+    );
+  input().props.onChange({ target: { value: "Original submitted value" } });
+  return {
+    s,
+    render,
+    input,
+    outer,
+    close,
+    completed,
+    mutate,
+    resolve: (index = 0) => requests[index].resolve(s),
+    reject: (index = 0) =>
+      requests[index].reject(new Error("Synthetic save failure")),
+    externallyClose: () => {
+      open = false;
+      outer();
+    },
+    reopen: () => {
+      open = true;
+      outer();
+    },
+    switchSpace: () => {
+      orgID = "other-org";
+      outer();
+    },
+    dispose: () => {
+      hooks.dispose();
+      outerHooks.dispose();
+    },
+  };
+}
+
+describe("Primary form submission lifetime", () => {
+  it.each(["event", "member"] as const)(
+    "blocks %s Sheet/Cancel dismissal while its write is pending",
+    async (kind) => {
+      const r = pendingForm(kind),
+        request = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      component(r.outer(), "Sheet").props.onClose();
+      component(r.render(), "Footer").props.onCancel();
+      expect(r.close).not.toHaveBeenCalled();
+      r.resolve();
+      await request;
+      expect(r.completed).toHaveBeenCalledOnce();
+      expect(r.close).toHaveBeenCalledOnce();
+    },
+  );
+  it.each(["event", "member"] as const)(
+    "ignores late %s completion after external close even while the exit body stays mounted",
+    async (kind) => {
+      const r = pendingForm(kind),
+        request = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      r.externallyClose();
+      r.resolve();
+      await request;
+      expect(r.completed).not.toHaveBeenCalled();
+      expect(r.close).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["event", "member"] as const)(
+    "ignores %s rejection after external unmount",
+    async (kind) => {
+      const r = pendingForm(kind),
+        request = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      r.dispose();
+      r.reject();
+      await request;
+      expect(r.completed).not.toHaveBeenCalled();
+      expect(r.close).not.toHaveBeenCalled();
+      expect(component(r.render(), "Footer").props.error).toBe("");
+    },
+  );
+  it.each(["event", "member", "period"] as const)(
+    "freezes %s primary-save edits immediately, then preserves submitted values",
+    async (kind) => {
+      const r = pendingForm(kind),
+        input = r.input(),
+        request = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      input.props.onChange({ target: { value: "Newer unsaved value" } });
+      expect(r.input().props).toMatchObject({
+        value: "Original submitted value",
+        readOnly: true,
+      });
+      if (kind === "event")
+        expect(component(r.render(), "Toggle").props.disabled).toBe(true);
+      if (kind === "member")
+        expect(
+          find(
+            r.render(),
+            (element) =>
+              element.type === "button" &&
+              element.props.className === "nx-chip",
+          ).props.disabled,
+        ).toBe(true);
+      if (kind === "period")
+        expect(
+          find(
+            r.render(),
+            (element) =>
+              element.type === "input" && element.props.type === "date",
+          ).props.disabled,
+        ).toBe(true);
+      r.resolve();
+      await request;
+      expect(r.close).toHaveBeenCalledOnce();
+    },
+  );
+  it.each(["event", "member"] as const)(
+    "unlocks a failed %s primary save without losing the draft and permits retry",
+    async (kind) => {
+      const r = pendingForm(kind),
+        request = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      r.reject();
+      await request;
+      expect(r.input().props).toMatchObject({
+        value: "Original submitted value",
+        readOnly: false,
+      });
+      expect(component(r.render(), "Footer").props.error).toBe(
+        "Synthetic save failure",
+      );
+      r.input().props.onChange({ target: { value: "Repaired value" } });
+      const retry = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      expect(r.mutate).toHaveBeenCalledTimes(2);
+      expect(r.mutate.mock.calls[1][0]).toMatchObject(
+        kind === "event"
+          ? { entity: { title: "Repaired value" } }
+          : { name: "Repaired value" },
+      );
+      r.resolve(1);
+      await retry;
+      expect(r.close).toHaveBeenCalledOnce();
+    },
+  );
+  it.each(["event", "member"] as const)(
+    "does not submit an idle canceled %s form through a retained callback",
+    async (kind) => {
+      const r = pendingForm(kind),
+        form = r.render();
+      component(r.outer(), "Sheet").props.onClose();
+      const request = form.props.onSubmit({ preventDefault: vi.fn() });
+      expect(r.close).toHaveBeenCalledOnce();
+      expect(r.mutate).not.toHaveBeenCalled();
+      await request;
+    },
+  );
+  it.each(["event", "member"] as const)(
+    "keeps a reopened %s request locked when an earlier session completes",
+    async (kind) => {
+      const r = pendingForm(kind),
+        oldRequest = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      r.externallyClose();
+      r.reopen();
+      r.input().props.onChange({ target: { value: "New session value" } });
+      const newRequest = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      expect(r.mutate).toHaveBeenCalledTimes(2);
+      r.resolve();
+      await oldRequest;
+      expect(r.input().props).toMatchObject({
+        value: "New session value",
+        readOnly: true,
+      });
+      expect(r.completed).not.toHaveBeenCalled();
+      expect(r.close).not.toHaveBeenCalled();
+      r.resolve(1);
+      await newRequest;
+      expect(r.completed).toHaveBeenCalledOnce();
+      expect(r.close).toHaveBeenCalledOnce();
+    },
+  );
+  it.each(["event", "member"] as const)(
+    "invalidates old %s dismissals and body identity when changing spaces",
+    (kind) => {
+      const r = pendingForm(kind),
+        original = component(r.outer(), "Sheet"),
+        oldBody = component(
+          r.outer(),
+          kind === "event" ? "EventFormBody" : "SimpleBody",
+        );
+      r.switchSpace();
+      const nextBody = component(
+        r.outer(),
+        kind === "event" ? "EventFormBody" : "SimpleBody",
+      );
+      expect(nextBody.key).not.toBe(oldBody.key);
+      original.props.onClose();
+      expect(r.close).not.toHaveBeenCalled();
+    },
+  );
+});
+
+
+describe("Phone sheet refused dismissal", () => {
+  it.each(["event", "member"] as const)(
+    "restores the %s sheet position when a pending save refuses a swipe",
+    async (kind) => {
+      window.innerWidth = 400;
+      const r = pendingForm(kind),
+        request = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      const hooks = new test.Hooks(),
+        tree = hooks.render(() =>
+          Sheet(
+            component(r.outer(), "Sheet").props as Parameters<typeof Sheet>[0],
+          ),
+        );
+      const panel = find(tree, (element) => element.props.role === "dialog"),
+        grabber = find(
+          tree,
+          (element) => element.props.className === "nx-grabber",
+        );
+      vi.mocked(animate).mockClear();
+      grabber.props.onPan(null, { offset: { y: 600 } });
+      expect(panel.props.style.y.set).toHaveBeenLastCalledWith(600);
+      grabber.props.onPanEnd(null, { offset: { y: 600 }, velocity: { y: 0 } });
+      expect(r.close).not.toHaveBeenCalled();
+      expect(animate).toHaveBeenCalledWith(
+        panel.props.style.y,
+        0,
+        expect.anything(),
+      );
+      r.reject();
+      await request;
+      expect(component(r.render(), "Footer").props.error).toBe(
+        "Synthetic save failure",
+      );
+    },
+  );
+  it("also restores a pending roster picker after a refused swipe", () => {
+    window.innerWidth = 400;
+    const r = rosterPicker();
+    r.option().props.onClick();
+    r.submit().props.onClick();
+    const hooks = new test.Hooks(),
+      tree = hooks.render(() =>
+        Sheet(
+          component(r.render(), "Sheet").props as Parameters<typeof Sheet>[0],
+        ),
+      );
+    const panel = find(tree, (element) => element.props.role === "dialog"),
+      grabber = find(
+        tree,
+        (element) => element.props.className === "nx-grabber",
+      );
+    vi.mocked(animate).mockClear();
+    grabber.props.onPanEnd(null, { offset: { y: 600 }, velocity: { y: 0 } });
+    expect(r.close).not.toHaveBeenCalled();
+    expect(animate).toHaveBeenCalledWith(
+      panel.props.style.y,
+      0,
+      expect.anything(),
+    );
+  });
+  it.each([undefined, true])(
+    "keeps accepted %s dismissal and short-swipe reset behavior",
+    (accepted) => {
+      window.innerWidth = 400;
+      const hooks = new test.Hooks(),
+        onClose = vi.fn().mockReturnValue(accepted),
+        tree = hooks.render(() =>
+          Sheet({ open: true, onClose, children: null }),
+        );
+      const panel = find(tree, (element) => element.props.role === "dialog"),
+        grabber = find(
+          tree,
+          (element) => element.props.className === "nx-grabber",
+        );
+      vi.mocked(animate).mockClear();
+      grabber.props.onPanEnd(null, { offset: { y: 10 }, velocity: { y: 0 } });
+      expect(animate).toHaveBeenCalledWith(
+        panel.props.style.y,
+        0,
+        expect.anything(),
+      );
+      expect(onClose).not.toHaveBeenCalled();
+      vi.mocked(animate).mockClear();
+      grabber.props.onPanEnd(null, { offset: { y: 600 }, velocity: { y: 0 } });
+      expect(onClose).toHaveBeenCalledOnce();
+      expect(animate).not.toHaveBeenCalled();
+    },
+  );
+});
+
+function pendingRecord() {
+  const requests: { resolve: (s: unknown) => void; reject: (error: Error) => void }[] = []
+  const mutate = vi.fn(() => new Promise((resolve, reject) => requests.push({ resolve, reject })))
+  const r = record(mutate)
+  return { ...r,
+    resolve: (i = 0) => requests[i].resolve(fixture()),
+    reject: (i = 0) => requests[i].reject(new Error('Old note request failed')),
+    history: (tree = r.render()) => find(tree, el => el.props.className === 'nx-group-row link').props.onClick(),
+    exclude: (tree = r.render()) => find(tree, el => el.props.className === 'nx-group-row link danger').props.onClick(),
+  }
+}
+
+describe('Attendance note session lifetime', () => {
+  it.each(['row', 'event', 'unmount'] as const)('does not run old History navigation after %s changes', async (mode) => {
+    const r = pendingRecord()
+    r.history()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    if (mode === 'unmount') r.dispose()
+    else r.changeContext(mode === 'event')
+    r.resolve()
+    await flush()
+    expect(r.openMember).not.toHaveBeenCalled()
+    expect(r.close).not.toHaveBeenCalled()
+  })
+  it.each([false, true])('does not show a previous note failure in the new record (new event=%s)', async (event) => {
+    const r = pendingRecord()
+    r.render().props.onClose()
+    r.changeContext(event)
+    r.reject()
+    await flush()
+    expect(find(r.render(), el => el.type === 'textarea').props.value).toBe('Existing next note')
+    expect(() => find(r.render(), el => el.props.role === 'alert')).toThrow()
+  })
+  it('keeps the new record baseline when an older save resolves', async () => {
+    const r = pendingRecord()
+    r.render().props.onClose()
+    r.changeContext()
+    r.resolve()
+    await flush()
+    find(r.render(), el => el.type === 'textarea').props.onChange({ target: { value: 'Edited next note' } })
+    r.render().props.onClose()
+    expect(r.mutate.mock.calls[1][0]).toMatchObject({ memberID: 'next-member', note: 'Edited next note', expectedNote: 'Existing next note' })
+    r.resolve(1)
+    await flush()
+  })
+  it.each(['resolve', 'reject'] as const)('starts the new record request independently and does not unlock it when old request %ss', async (outcome) => {
+    const r = pendingRecord()
+    r.history()
+    const changed = r.changeContext()
+    expect(find(changed, el => el.type === 'textarea').props.disabled).toBe(false)
+    find(changed, el => el.type === 'textarea').props.onChange({ target: { value: 'Edited next note' } })
+    r.render().props.onClose()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    r[outcome]()
+    await flush()
+    expect(find(r.render(), el => el.type === 'textarea').props.disabled).toBe(true)
+    expect(r.close).not.toHaveBeenCalled()
+    expect(r.openMember).not.toHaveBeenCalled()
+    expect(() => find(r.render(), el => el.props.role === 'alert')).toThrow()
+    r.resolve(1)
+    await flush()
+    expect(r.close).toHaveBeenCalledOnce()
+  })
+  it.each(['resolve', 'reject'] as const)('restores phone y while dirty-note dismissal is deferred, including %s', async (outcome) => {
+    window.innerWidth = 400
+    const r = pendingRecord(), hooks = new test.Hooks()
+    const tree = hooks.render(() => Sheet(r.render().props as Parameters<typeof Sheet>[0]))
+    const panel = find(tree, el => el.props.role === 'dialog')
+    const grabber = find(tree, el => el.props.className === 'nx-grabber')
+    vi.mocked(animate).mockClear()
+    grabber.props.onPan(null, { offset: { y: 600 } })
+    grabber.props.onPanEnd(null, { offset: { y: 600 }, velocity: { y: 0 } })
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.close).not.toHaveBeenCalled()
+    expect(animate).toHaveBeenCalledWith(panel.props.style.y, 0, expect.anything())
+    r[outcome]()
+    await flush()
+    if (outcome === 'resolve') expect(r.close).toHaveBeenCalledOnce()
+    else {
+      expect(r.close).not.toHaveBeenCalled()
+      expect(find(r.render(), el => el.type === 'textarea').props.value).toBe('Avisó')
+    }
+  })
+  it('does not close the new record after already-requested note-plus-exclusion finishes', async () => {
+    const r = pendingRecord()
+    r.exclude()
+    r.changeContext()
+    r.resolve()
+    await flush()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    expect(r.mutate.mock.calls[1][0]).toMatchObject({ kind: 'inclusion', eventID: 'event', memberID: 'member', included: false })
+    r.resolve(1)
+    await flush()
+    expect(r.close).not.toHaveBeenCalled()
+  })
+  it('preserves an explicitly requested compound exclusion after unmount', async () => {
+    const r = pendingRecord()
+    r.exclude()
+    r.dispose()
+    r.resolve()
+    await flush()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    expect(r.mutate.mock.calls[1][0]).toMatchObject({ kind: 'inclusion', memberID: 'member' })
+    r.resolve(1)
+    await flush()
+  })
+  it('saves and navigates normally within the original History session', async () => {
+    const r = pendingRecord()
+    r.history()
+    r.resolve()
+    await flush()
+    expect(r.openMember).toHaveBeenCalledWith('member')
+    expect(r.close).toHaveBeenCalledOnce()
+  })
+})
+
+
+describe('Attendance note synchronous controls', () => {
+  it('does not accept edits or discard a submitted note before rerender', async () => {
+    const r = pendingRecord(), tree = r.render()
+    expect(tree.props.onClose()).toBe(false)
+    find(tree, el => el.type === 'textarea').props.onChange({ target: { value: 'Not submitted' } })
+    find(tree, el => el.props.className === 'nx-button').props.onClick()
+    expect(r.close).not.toHaveBeenCalled()
+    r.reject()
+    await flush()
+    expect(find(r.render(), el => el.type === 'textarea').props.value).toBe('Avisó')
+  })
+  it('invalidates retained actions after an explicit discard', async () => {
+    const r = pendingRecord(), tree = r.render()
+    find(tree, el => el.props.className === 'nx-button').props.onClick()
+    tree.props.onClose()
+    r.history(tree)
+    r.exclude(tree)
+    find(tree, el => el.props.className === 'nx-record-mark absent').props.onClick()
+    expect(r.close).toHaveBeenCalledOnce()
+    expect(r.mutate).not.toHaveBeenCalled()
+    expect(r.openMember).not.toHaveBeenCalled()
+  })
+  it('ignores old controls after switching rows', () => {
+    const r = pendingRecord(), tree = r.render()
+    r.changeContext()
+    tree.props.onClose()
+    r.history(tree)
+    r.exclude(tree)
+    find(tree, el => el.type === 'textarea').props.onChange({ target: { value: 'Old row edit' } })
+    expect(r.close).not.toHaveBeenCalled()
+    expect(r.mutate).not.toHaveBeenCalled()
+    expect(find(r.render(), el => el.type === 'textarea').props.value).toBe('Existing next note')
+  })
+  it('keeps clean phone dismissal synchronous without a competing reset', () => {
+    window.innerWidth = 400
+    const r = pendingRecord(), hooks = new test.Hooks()
+    find(r.render(), el => el.type === 'textarea').props.onChange({ target: { value: '' } })
+    const tree = hooks.render(() => Sheet(r.render().props as Parameters<typeof Sheet>[0]))
+    const grabber = find(tree, el => el.props.className === 'nx-grabber')
+    vi.mocked(animate).mockClear()
+    grabber.props.onPanEnd(null, { offset: { y: 600 }, velocity: { y: 0 } })
+    expect(r.close).toHaveBeenCalledOnce()
+    expect(r.mutate).not.toHaveBeenCalled()
+    expect(animate).not.toHaveBeenCalled()
+  })
+})
+
+describe('Attendance note retained event exit', () => {
+  it('does not navigate from an exiting event body before its animation unmounts', async () => {
+    const r = pendingRecord()
+    r.history()
+    // App's event-keyed AnimatePresence retains the old event body with old props,
+    // but its Motion presence context becomes false as the selection changes.
+    test.present = false
+    r.render()
+    r.resolve()
+    await flush()
+    expect(r.openMember).not.toHaveBeenCalled()
+    expect(r.close).not.toHaveBeenCalled()
+  })
+  it('preserves inclusion but skips stale UI close in the retained exit body', async () => {
+    const r = pendingRecord()
+    r.exclude()
+    test.present = false
+    r.render()
+    r.resolve()
+    await flush()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    r.resolve(1)
+    await flush()
+    expect(r.close).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('Attendance note retained exit errors and re-entry', () => {
+  it('does not set the exiting record error after an old note rejection', async () => {
+    const r = pendingRecord()
+    r.history()
+    test.present = false
+    r.render()
+    r.reject()
+    await flush()
+    expect(() => find(r.render(), el => el.props.role === 'alert')).toThrow()
+    expect(r.close).not.toHaveBeenCalled()
+    expect(r.openMember).not.toHaveBeenCalled()
+  })
+  it.each(['resolve', 'reject'] as const)('starts a distinct session after exit reversal and ignores old %s', async (outcome) => {
+    const r = pendingRecord()
+    r.history()
+    test.present = false
+    r.render()
+    test.present = true
+    const reopened = r.render()
+    expect(find(reopened, el => el.type === 'textarea').props.disabled).toBe(false)
+    find(reopened, el => el.type === 'textarea').props.onChange({ target: { value: 'New session note' } })
+    r.render().props.onClose()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    r[outcome]()
+    await flush()
+    expect(find(r.render(), el => el.type === 'textarea').props.disabled).toBe(true)
+    expect(r.close).not.toHaveBeenCalled()
+    expect(r.openMember).not.toHaveBeenCalled()
+    expect(() => find(r.render(), el => el.props.role === 'alert')).toThrow()
+    r.resolve(1)
+    await flush()
+    expect(r.close).toHaveBeenCalledOnce()
+    expect(r.openMember).not.toHaveBeenCalled()
+  })
+})
+
+describe('Drive interface localization', () => {
+  const space = (key = 'template:synthetic') => ({
+    organizationID: 'org', folderID: 'synthetic-folder', pending: 0, canEdit: true, error: '',
+    conflicts: [{ key, versions: [{ id: 'synthetic-version', device: 'Synthetic Mac', date: '2026-10-24T12:00:00Z', summary: 'Synthetic template' }] }],
+  })
+  it('shows English while connecting rather than leaking a Spanish pending label', async () => {
+    let resolve!: () => void
+    const runDrive = vi.fn(() => new Promise<void>(done => { resolve = done }))
+    const context = { drive: { ...emptyDrive, configured: true }, driveBusy: false, runDrive }
+    test.context = context
+    const hooks = new test.Hooks(), render = () => hooks.render(() => DrivePanel({ orgID: 'org' }))
+    const button = (tree: unknown) => find(tree, el => el.type === 'button' && el.props.className === 'button primary')
+    expect(button(render()).props.children).toContain('Connect Google')
+    button(render()).props.onClick()
+    context.driveBusy = true
+    const pending = button(render())
+    expect(pending.props.children).toContain('Connecting…')
+    expect(pending.props.disabled).toBe(true)
+    expect(runDrive).toHaveBeenCalledExactlyOnceWith('driveConnect', {})
+    resolve()
+    await flush()
+  })
+  it('shows English while preparing a synthetic conflict preview', async () => {
+    let resolve!: (value: unknown) => void
+    test.bridge.mockImplementation(() => new Promise(done => { resolve = done }))
+    test.context = { drive: { ...emptyDrive, configured: true, connected: true, spaces: [space()] }, driveBusy: false, notify: vi.fn() }
+    const panelHooks = new test.Hooks(), previewHooks = new test.Hooks()
+    const preview = component(panelHooks.render(() => DrivePanel({ orgID: 'org' })), 'VersionPreview')
+    const render = () => previewHooks.render(() => invoke(preview))
+    const button = (tree: unknown) => find(tree, el => el.type === 'button')
+    expect(button(render()).props.children).toContain('View template')
+    button(render()).props.onClick()
+    expect(button(render()).props.children).toContain('Preparing…')
+    expect(button(render()).props.disabled).toBe(true)
+    expect(test.bridge).toHaveBeenCalledExactlyOnceWith({ command: 'drivePreviewTemplate', organizationID: 'org', key: 'template:synthetic', versionID: 'synthetic-version' })
+    resolve({ token: 'synthetic-preview', pageCount: 1, image: 'synthetic-image' })
+    await flush()
+    expect(find(render(), el => el.type === 'img').props.alt).toBe('Template, page 1')
+  })
+  it('translates the fallback conflict heading without changing user content', () => {
+    test.context = { drive: { ...emptyDrive, connected: true, spaces: [space('unknown:synthetic')] }, driveBusy: false }
+    const hooks = new test.Hooks(), tree = hooks.render(() => DrivePanel({ orgID: 'org' }))
+    expect(find(tree, el => el.type === 'h4').props.children).toBe('Record')
+    expect(find(tree, el => el.type === 'p' && el.props.children === 'Synthetic template').props.children).toBe('Synthetic template')
+  })
+})
+
+function versionPreview() {
+  const space = {
+    organizationID: 'org', folderID: 'synthetic-folder', pending: 0, canEdit: true, error: '',
+    conflicts: [{ key: 'template:synthetic', versions: [{ id: 'synthetic-version', device: 'Synthetic Mac', date: '2026-10-24T12:00:00Z', summary: 'Synthetic template' }] }],
+  }
+  const notify = vi.fn()
+  const runDrive = vi.fn(async () => { space.conflicts = [] })
+  test.context = { drive: { ...emptyDrive, configured: true, connected: true, spaces: [space] }, driveBusy: false, notify, runDrive }
+  const requests: { command: string; resolve: (value: unknown) => void; reject: (error: Error) => void }[] = []
+  test.bridge.mockImplementation(({ command }) => new Promise((resolve, reject) => requests.push({ command, resolve, reject })))
+  const panelHooks = new test.Hooks(), previewHooks = new test.Hooks()
+  const panel = () => panelHooks.render(() => DrivePanel({ orgID: 'org' }))
+  const preview = component(panel(), 'VersionPreview')
+  const render = () => previewHooks.render(() => invoke(preview))
+  return { notify, runDrive, requests, render, panel,
+    start: () => find(render(), el => el.type === 'button'),
+    next: () => find(render(), el => el.props['aria-label'] === tr('Página siguiente')),
+    resolve: (i: number, value: unknown) => requests[i].resolve(value),
+    reject: (i: number) => requests[i].reject(new Error('Synthetic old preview failure')),
+    resolveConflict: async () => {
+      find(panel(), el => el.type === 'button' && Array.isArray(el.props.children) && el.props.children.includes(tr('Usar esta versión'))).props.onClick()
+      await flush()
+      expect(() => component(panel(), 'VersionPreview')).toThrow()
+      previewHooks.dispose()
+    },
+  }
+}
+
+describe('Drive conflict preview lifecycle', () => {
+  it.each(['resolve', 'reject'] as const)('does not let a duplicate initial preview %s rewind or erase a later page', async (outcome) => {
+    const r = versionPreview(), button = r.start()
+    button.props.onClick()
+    button.props.onClick()
+    r.resolve(0, { token: 'first-token', pageCount: 3, image: 'page-1' })
+    await flush()
+    r.next().props.onClick()
+    const pageRequest = r.requests.length - 1
+    r.resolve(pageRequest, { image: 'page-2' })
+    await flush()
+    // A synchronous guard may avoid request 1 entirely; otherwise it must not
+    // replace the newer successful page or report an obsolete request error.
+    if (r.requests[1].command === 'drivePreviewTemplate') {
+      if (outcome === 'resolve') r.resolve(1, { token: 'late-token', pageCount: 3, image: 'page-1' })
+      else r.reject(1)
+      await flush()
+    }
+    expect(find(r.render(), el => el.type === 'img').props).toMatchObject({ src: 'page-2', alt: tr('Plantilla, página {0}', 2) })
+    expect(r.notify).not.toHaveBeenCalled()
+  })
+  it('does not notify an obsolete preview error after the user resolves the conflict', async () => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    await r.resolveConflict()
+    expect(r.runDrive).toHaveBeenCalledWith('driveResolve', { organizationID: 'org', key: 'template:synthetic', versionID: 'synthetic-version' })
+    r.reject(0)
+    await flush()
+    expect(r.notify).not.toHaveBeenCalled()
+  })
+  it('does not notify an old page error after the conflict preview is removed', async () => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    r.resolve(0, { token: 'token', pageCount: 3, image: 'page-1' })
+    await flush()
+    r.next().props.onClick()
+    await r.resolveConflict()
+    r.reject(1)
+    await flush()
+    expect(r.notify).not.toHaveBeenCalled()
+  })
+  it('does not notify from a retained preview after its Settings sheet starts exiting', async () => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    test.present = false
+    r.render()
+    r.reject(0)
+    await flush()
+    expect(r.notify).not.toHaveBeenCalled()
+  })
+  it('reports a current failure and permits a retry', async () => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    r.reject(0)
+    await flush()
+    expect(r.notify).toHaveBeenCalledExactlyOnceWith('Synthetic old preview failure', true)
+    expect(r.start().props.disabled).toBe(false)
+    r.start().props.onClick()
+    r.resolve(1, { token: 'retry-token', pageCount: 1, image: 'retry-image' })
+    await flush()
+    expect(find(r.render(), el => el.type === 'img').props.src).toBe('retry-image')
+  })
+  it('renders normal page image and number together', async () => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    r.resolve(0, { token: 'token', pageCount: 3, image: 'page-1' })
+    await flush()
+    r.next().props.onClick()
+    r.resolve(1, { image: 'page-2' })
+    await flush()
+    expect(find(r.render(), el => el.type === 'img').props).toMatchObject({ src: 'page-2', alt: tr('Plantilla, página {0}', 2) })
+  })
+})
+
+describe('Drive preview request isolation', () => {
+  it('shares a synchronous lock across repeated page callbacks', async () => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    r.resolve(0, { token: 'token', pageCount: 3, image: 'page-1' })
+    await flush()
+    const next = r.next()
+    next.props.onClick()
+    next.props.onClick()
+    expect(r.requests).toHaveLength(2)
+    r.resolve(1, { image: 'page-2' })
+    await flush()
+    expect(find(r.render(), el => el.type === 'img').props).toMatchObject({ src: 'page-2', alt: tr('Plantilla, página {0}', 2) })
+  })
+  it.each(['resolve', 'reject'] as const)('does not revive an old preview or unlock a new one after exit reversal and old %s', async (outcome) => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    test.present = false
+    r.render()
+    test.present = true
+    expect(r.start().props.disabled).toBe(false)
+    r.start().props.onClick()
+    expect(r.requests).toHaveLength(2)
+    if (outcome === 'resolve') r.resolve(0, { token: 'old-token', pageCount: 3, image: 'old-image' })
+    else r.reject(0)
+    await flush()
+    expect(r.start().props.disabled).toBe(true)
+    expect(r.notify).not.toHaveBeenCalled()
+    r.resolve(1, { token: 'new-token', pageCount: 1, image: 'new-image' })
+    await flush()
+    expect(find(r.render(), el => el.type === 'img').props.src).toBe('new-image')
+  })
+  it('ignores retained preview callbacks after the conflict is removed', async () => {
+    const r = versionPreview(), start = r.start()
+    await r.resolveConflict()
+    start.props.onClick()
+    expect(test.bridge).not.toHaveBeenCalled()
+  })
+  it('keeps disabled pagination boundaries from requesting nonexistent pages', async () => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    r.resolve(0, { token: 'token', pageCount: 2, image: 'page-1' })
+    await flush()
+    const previous = find(r.render(), el => el.props['aria-label'] === tr('Página anterior'))
+    expect(previous.props.disabled).toBe(true)
+    previous.props.onClick()
+    expect(r.requests).toHaveLength(1)
+    r.next().props.onClick()
+    r.resolve(1, { image: 'page-2' })
+    await flush()
+    const next = r.next()
+    expect(next.props.disabled).toBe(true)
+    next.props.onClick()
+    expect(r.requests).toHaveLength(2)
+  })
+})
+
+describe('Drive conflict opposite page callbacks', () => {
+  it('does not let an older page response replace a newer accepted destination', async () => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    r.resolve(0, { token: 'token', pageCount: 3, image: 'page-1' })
+    await flush()
+    r.next().props.onClick()
+    r.resolve(1, { image: 'page-2' })
+    await flush()
+    const middle = r.render()
+    find(middle, el => el.props['aria-label'] === tr('Página anterior')).props.onClick()
+    find(middle, el => el.props['aria-label'] === tr('Página siguiente')).props.onClick()
+    const acceptedBoth = r.requests.length === 4
+    if (acceptedBoth) { r.resolve(3, { image: 'page-3' }); await flush() }
+    r.resolve(2, { image: 'page-1' })
+    await flush()
+    expect(find(r.render(), el => el.type === 'img').props).toMatchObject({
+      src: acceptedBoth ? 'page-3' : 'page-1',
+      alt: tr('Plantilla, página {0}', acceptedBoth ? 3 : 1),
+    })
+  })
+})
+
+
+describe('Space removal localization', () => {
+  it.each(['resolve', 'reject'] as const)('keeps pending removal in English without translating user data on %s', async (outcome) => {
+    const snapshot = fixture()
+    snapshot.organizations[0].name = 'Conectando…'
+    let resolve!: (value: unknown) => void, reject!: (error: Error) => void
+    const mutate = vi.fn(() => new Promise((done, fail) => { resolve = done; reject = fail }))
+    const changed = vi.fn(), notify = vi.fn()
+    test.context = { snapshot, demo: true, busy: false, driveBusy: false, drive: emptyDrive, mutate, notify }
+    const hooks = new test.Hooks()
+    const render = () => hooks.render(() => SpaceManager({ close: vi.fn(), open: vi.fn(), create: vi.fn(), changed }))
+    find(render(), el => el.props.className === 'icon-button space-delete').props.onClick()
+    const button = () => find(render(), el => el.props.className === 'button danger-fill')
+    expect(button().props.children).toBe('Move to Trash')
+    button().props.onClick()
+    expect(button().props.children).toBe('Deleting…')
+    expect(button().props.disabled).toBe(true)
+    expect(mutate).toHaveBeenCalledExactlyOnceWith({ kind: 'setOrganizationDeleted', organizationID: 'org', deleted: true, expectedDeleted: false, expectedName: 'Conectando…' })
+    if (outcome === 'resolve') {
+      resolve(snapshot)
+      await flush()
+      expect(changed).toHaveBeenCalledExactlyOnceWith('org', true)
+      expect(notify).toHaveBeenCalledWith('Space moved to Trash', false, expect.any(Function))
+    } else {
+      reject(new Error('Conectando…'))
+      await flush()
+      expect(button().props.children).toBe('Move to Trash')
+      expect(button().props.disabled).toBe(false)
+      expect(find(render(), el => el.type === 'h3').props.children).toBe('Conectando…')
+      expect(find(render(), el => el.props.role === 'alert').props.children).toBe('Conectando…')
+      expect(changed).not.toHaveBeenCalled()
+    }
+  })
+})
+
+async function personGroups(demo = false) {
+  let latest = fixture()
+  latest.groups = [
+    { id: 'group-a', organizationID: 'org', name: 'Group A' },
+    { id: 'group-b', organizationID: 'org', name: 'Group B' },
+  ]
+  const requests: { action: any; resolve: (value: unknown) => void; reject: (error: Error) => void }[] = []
+  test.bridge.mockImplementation((request) => {
+    if (request.command === 'load') return Promise.resolve({ snapshot: latest, drive: emptyDrive })
+    if (request.command === 'driveStatus') return Promise.resolve(emptyDrive)
+    if (request.command === 'mutate') return new Promise((resolve, reject) => requests.push({ action: request.action, resolve, reject }))
+    throw new Error('Unexpected synthetic command')
+  })
+  const providerHooks = new test.Hooks(), personHooks = new test.Hooks()
+  const workspace = () => providerHooks.render(() => WorkspaceProvider({ children: null })).props.value
+  workspace()
+  await flush()
+  if (demo) await workspace().startDemo()
+  const memberID = workspace().snapshot.members[0].id
+  const render = () => {
+    const w = workspace()
+    test.context = w
+    return personHooks.render(() => PersonPanel({ s: w.snapshot, member: w.snapshot.members.find((m: any) => m.id === memberID), openEvent: vi.fn() }))
+  }
+  const group = (id: string) => find(render(), el => el.type === 'button' && el.key === id)
+  return { workspace, render, group, requests, memberID,
+    finish: async (index: number) => {
+      const request = requests[index]
+      const current = currentGroups(latest, request.action.memberID).map(g => g.id).sort()
+      const expected = [...request.action.expectedGroupIDs].sort()
+      if (JSON.stringify(current) !== JSON.stringify(expected)) request.reject(new Error('Synthetic native expectedGroupIDs conflict'))
+      else { latest = simulateAction(latest, request.action); request.resolve(latest) }
+      await flush()
+    },
+  }
+}
+
+describe('Person group mutation ordering', () => {
+  it('does not accept a second conflicting whole-list selection while the first native write is pending', async () => {
+    const r = await personGroups()
+    r.group('group-a').props.onClick()
+    await flush()
+    expect(r.requests).toHaveLength(1)
+    // This is a fresh rendered control during a genuinely pending native request,
+    // not a stale callback or a simulated disabled button click.
+    const second = r.group('group-b')
+    if (!second.props.disabled) second.props.onClick()
+    await r.finish(0)
+    if (r.requests.length > 1) await r.finish(1)
+    expect(currentGroups(r.workspace().snapshot, r.memberID).map(g => g.id)).toContain('group-a')
+    expect(r.workspace().toast?.error).not.toBe(true)
+  })
+  it('does not restore a group just removed by another same-render click in the real demo queue', async () => {
+    const r = await personGroups(true)
+    const w = r.workspace(), initial = currentGroups(w.snapshot, r.memberID).map(g => g.id)
+    expect(initial).toHaveLength(1)
+    const other = w.snapshot.groups.find((g: any) => !initial.includes(g.id)).id
+    const remove = r.group(initial[0]), add = r.group(other)
+    remove.props.onClick()
+    add.props.onClick()
+    await flush()
+    // Either serialize/refuse the second action or preserve its intent; neither
+    // policy should undo the earlier explicit removal.
+    expect(currentGroups(r.workspace().snapshot, r.memberID).map(g => g.id)).not.toContain(initial[0])
+  })
+  it('preserves two sequential native group selections with fresh snapshots', async () => {
+    const r = await personGroups()
+    r.group('group-a').props.onClick()
+    await flush()
+    await r.finish(0)
+    r.group('group-b').props.onClick()
+    await flush()
+    await r.finish(1)
+    expect(currentGroups(r.workspace().snapshot, r.memberID).map(g => g.id).sort()).toEqual(['group-a', 'group-b'])
+    expect(r.workspace().toast?.error).not.toBe(true)
+  })
+  it('preserves sequential removal/addition through real demo simulation', async () => {
+    const r = await personGroups(true)
+    const w = r.workspace(), initial = currentGroups(w.snapshot, r.memberID).map(g => g.id)
+    const other = w.snapshot.groups.find((g: any) => !initial.includes(g.id)).id
+    r.group(initial[0]).props.onClick()
+    await flush()
+    r.group(other).props.onClick()
+    await flush()
+    expect(currentGroups(r.workspace().snapshot, r.memberID).map(g => g.id)).toEqual([other])
+  })
+})
+
+function pendingPersonGroups(initialGroups = false) {
+  let s = fixture(), memberID = 'member'
+  s.members.push({ id: 'other-member', organizationID: 'org', name: 'Bea', isActive: true })
+  s.groups = [{ id: 'group-a', organizationID: 'org', name: 'Group A' }, { id: 'group-b', organizationID: 'org', name: 'Group B' }]
+  if (initialGroups) s.memberships.push({ id: 'existing-membership', memberID, groupID: 'group-a', startsAt: '2026-10-20T00:00:00Z' })
+  const requests: { action: any; resolve: (value: unknown) => void; reject: (error: Error) => void }[] = []
+  const mutate = vi.fn((action) => new Promise((resolve, reject) => requests.push({ action, resolve, reject })))
+  test.context = { mutate }
+  const hooks = new test.Hooks()
+  const render = () => hooks.render(() => PersonPanel({ s, member: s.members.find(m => m.id === memberID)!, openEvent: vi.fn() }))
+  return { mutate, requests, render,
+    group: (id = 'group-a') => find(render(), el => el.type === 'button' && el.key === id),
+    switchMember: () => { memberID = 'other-member'; return render() },
+    resolve: async (i = 0) => { s = simulateAction(s, requests[i].action); requests[i].resolve(s); await flush() },
+    reject: async (i = 0) => { requests[i].reject(new Error('Synthetic group write failed')); await flush() },
+    dispose: () => hooks.dispose(),
+  }
+}
+
+describe('Person group request lifetime', () => {
+  it('guards same-render group callbacks and shows pending state until settlement', async () => {
+    const r = pendingPersonGroups(), tree = r.render()
+    find(tree, el => el.type === 'button' && el.key === 'group-a').props.onClick()
+    find(tree, el => el.type === 'button' && el.key === 'group-b').props.onClick()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.group().props.disabled).toBe(true)
+    expect(find(r.render(), el => el.props.className === 'nx-chips wrap').props['aria-busy']).toBe(true)
+    await r.resolve()
+    expect(r.group().props.disabled).not.toBe(true)
+    expect(r.group().props['aria-pressed']).toBe(true)
+  })
+  it('preserves saved groups on current failure and permits a retry', async () => {
+    const r = pendingPersonGroups(true)
+    r.group('group-b').props.onClick()
+    await r.reject()
+    expect(r.group().props['aria-pressed']).toBe(true)
+    expect(r.group('group-b').props['aria-pressed']).toBe(false)
+    expect(r.group('group-b').props.disabled).not.toBe(true)
+    r.group('group-b').props.onClick()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    expect(r.requests[1].action).toMatchObject({ groupIDs: ['group-a', 'group-b'], expectedGroupIDs: ['group-a'] })
+    await r.resolve(1)
+    expect(r.group('group-b').props['aria-pressed']).toBe(true)
+  })
+  it.each(['resolve', 'reject'] as const)('keeps another person request locked when the old request %ss', async (outcome) => {
+    const r = pendingPersonGroups(), oldControl = r.group()
+    oldControl.props.onClick()
+    r.switchMember()
+    expect(r.group().props.disabled).not.toBe(true)
+    r.group('group-b').props.onClick()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    oldControl.props.onClick()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    await r[outcome]()
+    expect(r.group().props.disabled).toBe(true)
+    r.group().props.onClick()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    await r.resolve(1)
+    expect(r.group().props.disabled).not.toBe(true)
+    expect(r.group('group-b').props['aria-pressed']).toBe(true)
+    expect(r.group().props['aria-pressed']).toBe(false)
+  })
+  it('ignores both retained and rendered controls after the person panel starts exiting', () => {
+    const r = pendingPersonGroups(), oldControl = r.group()
+    test.present = false
+    r.render()
+    oldControl.props.onClick()
+    r.group('group-b').props.onClick()
+    expect(r.mutate).not.toHaveBeenCalled()
+  })
+  it.each(['resolve', 'reject'] as const)('starts a fresh request after exit reversal without old %s unlocking it', async (outcome) => {
+    const r = pendingPersonGroups()
+    r.group().props.onClick()
+    test.present = false
+    r.render()
+    test.present = true
+    expect(r.group().props.disabled).not.toBe(true)
+    r.group('group-b').props.onClick()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    await r[outcome]()
+    expect(r.group().props.disabled).toBe(true)
+    r.group().props.onClick()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    await r.resolve(1)
+    expect(r.group().props.disabled).not.toBe(true)
+    expect(r.group('group-b').props['aria-pressed']).toBe(true)
+  })
+  it('does not start a mutation through old controls after unmount', () => {
+    const r = pendingPersonGroups(), group = r.group()
+    r.dispose()
+    group.props.onClick()
+    expect(r.mutate).not.toHaveBeenCalled()
+  })
+  it('leaves rename and archive operations independent of the group lock', async () => {
+    const r = pendingPersonGroups()
+    r.group().props.onClick()
+    const tree = r.render()
+    component(tree, 'InlineText').props.onSave('Renamed')
+    find(tree, el => el.type === 'button' && el.props.className === 'nx-link subtle').props.onClick()
+    expect(r.requests.map(request => request.action.kind)).toEqual(['memberGroups', 'updateMember', 'updateMember'])
+    for (let i = 0; i < 3; i++) await r.resolve(i)
+  })
+})
+
+it('Reopened same-person controls do not enqueue another stale whole-list write while its original native mutation is still pending', async () => {
+  const r = await personGroups()
+  r.group('group-a').props.onClick()
+  await flush()
+  expect(r.requests).toHaveLength(1)
+  test.present = false
+  r.render()
+  test.present = true
+  const second = r.group('group-b')
+  if (!second.props.disabled) second.props.onClick()
+  await r.finish(0)
+  if (r.requests.length > 1) await r.finish(1)
+  expect(currentGroups(r.workspace().snapshot, r.memberID).map(g => g.id)).toContain('group-a')
+  expect(r.workspace().toast?.error).not.toBe(true)
+})
+
+it.each(['busy', 'driveBusy'])('defers person group replacements while workspace %s can change the saved selection', (flag) => {
+  const r = pendingPersonGroups(true)
+  ;(test.context as Record<string, unknown>)[flag] = true
+  expect(r.group('group-b').props.disabled).toBe(true)
+  r.group('group-b').props.onClick()
+  expect(r.mutate).not.toHaveBeenCalled()
+  expect(r.group().props['aria-pressed']).toBe(true)
+})
+
+// Publish the real provider snapshot while holding its post-commit status read.
+async function openingSpaceHarness() {
+  let latest = emptySnapshot()
+  const mutations: { action: any; resolve: (value: unknown) => void; reject: (error: Error) => void }[] = []
+  const statuses: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = []
+  test.bridge.mockImplementation(request => {
+    if (request.command === 'load') return Promise.resolve({ snapshot: latest, drive: emptyDrive })
+    if (request.command === 'recoverDraft' || request.command === 'activeOrganization') return Promise.resolve({})
+    if (request.command === 'mutate') return new Promise((resolve, reject) => mutations.push({ action: request.action, resolve, reject }))
+    if (request.command === 'driveStatus') return new Promise((resolve, reject) => statuses.push({ resolve, reject }))
+    throw new Error(`Unexpected synthetic command ${request.command}`)
+  })
+  const provider = new test.Hooks(), app = new test.Hooks()
+  let outer = new test.Hooks(), body = new test.Hooks(), identity = ''
+  let current: Element, sheet: Element, tree: Element
+  const workspace = () => provider.render(() => WorkspaceProvider({ children: null })).props.value
+  const render = () => {
+    test.context = workspace()
+    tree = app.render(() => App())
+    current = component(tree, 'SimpleForm')
+    let first = false
+    try { component(tree, 'FirstOpening'); first = true } catch { /* normal workspace */ }
+    // Mirror unmount at the distinct App return branches and the form's
+    // organization-key change; this is callback coverage, not a DOM renderer.
+    const next = `${first}:${current.props.orgID}`
+    if (identity && identity !== next) {
+      outer.dispose(); body.dispose(); outer = new test.Hooks(); body = new test.Hooks()
+    }
+    identity = next
+    sheet = outer.render(() => invoke(current))
+    return tree
+  }
+  const form = () => { render(); return body.render(() => invoke(component(sheet, 'SimpleBody'))) }
+  const input = () => find(form(), e => e.type === 'input')
+  workspace(); await flush(); test.context = workspace(); app.render(() => App()); await flush()
+  const open = () => { component(render(), 'FirstOpening').props.create(); render() }
+  open()
+  return { workspace, render, form, input, open, mutations, statuses,
+    kind: () => { render(); return current.props.kind },
+    dismiss: () => { render(); return sheet.props.onClose() },
+    submit: () => form().props.onSubmit({ preventDefault: vi.fn() }),
+    commit: async (index = 0) => { latest = simulateAction(latest, mutations[index].action); mutations[index].resolve(latest); await flush() },
+    navigate: (id: string) => { const event = new Event('nexo-open-space'); Object.assign(event, { detail: id }); window.dispatchEvent(event); render() },
+  }
+}
+
+describe('First-space creation across committed snapshot publication', () => {
+  it('still creates and enters another space from an existing workspace', async () => {
+    const r = await openingSpaceHarness()
+    r.input().props.onChange({ target: { value: 'First synthetic space' } })
+    const first = r.submit(); await flush(); await r.commit()
+    r.render()
+    r.statuses[0].resolve(emptyDrive); await first
+    component(r.render(), 'SpaceSwitcher').props.create()
+    r.input().props.onChange({ target: { value: 'Second synthetic space' } })
+    const second = r.submit(); await flush(); await r.commit(1)
+    expect(component(r.render(), 'SpaceSwitcher').props.current.name).toBe('First synthetic space')
+    expect(r.input().props.value).toBe('Second synthetic space')
+    r.statuses[1].resolve(emptyDrive); await second
+    expect(r.kind()).toBeNull()
+    expect(component(r.render(), 'SpaceSwitcher').props.current.name).toBe('Second synthetic space')
+    expect(r.workspace().snapshot.organizations).toHaveLength(2)
+  })
+  it('retains the submitted first-space draft while post-commit status is pending', async () => {
+    const r = await openingSpaceHarness()
+    r.input().props.onChange({ target: { value: 'Synthetic first space' } })
+    const pending = r.submit(); await flush(); await r.commit()
+    expect(r.workspace().snapshot.organizations[0].name).toBe('Synthetic first space')
+    expect(r.workspace().busy).toBe(true)
+    expect(r.input().props).toMatchObject({ value: 'Synthetic first space', readOnly: true })
+    expect(r.mutations).toHaveLength(1)
+    r.statuses[0].resolve(emptyDrive); await pending
+  })
+  it('closes first-space creation after success instead of opening a blank duplicate form', async () => {
+    const r = await openingSpaceHarness()
+    r.input().props.onChange({ target: { value: 'Synthetic first space' } })
+    const pending = r.submit(); await flush(); await r.commit()
+    r.render()
+    r.statuses[0].resolve(emptyDrive); await pending
+    expect(r.kind()).toBeNull()
+    expect(r.workspace().snapshot.organizations).toHaveLength(1)
+    expect(component(r.render(), 'SpaceSwitcher').props.current.name).toBe('Synthetic first space')
+  })
+  it('cancels unsent first-space entry and ignores retained submit callbacks after reopening', async () => {
+    const r = await openingSpaceHarness()
+    r.input().props.onChange({ target: { value: 'Canceled draft' } })
+    const oldForm = r.form()
+    expect(r.dismiss()).toBe(true)
+    expect(r.kind()).toBeNull()
+    r.open()
+    await oldForm.props.onSubmit({ preventDefault: vi.fn() })
+    expect(r.mutations).toHaveLength(0)
+    expect(r.kind()).toBe('organization')
+  })
+  it('preserves failed first-space input and permits one successful retry', async () => {
+    const r = await openingSpaceHarness()
+    r.input().props.onChange({ target: { value: 'Retryable first space' } })
+    const first = r.submit(); await flush()
+    r.mutations[0].reject(new Error('Synthetic native rejection'))
+    await first
+    expect(r.input().props.value).toBe('Retryable first space')
+    expect(component(r.form(), 'Footer').props.error).toBe('Synthetic native rejection')
+    const retry = r.submit(); await flush()
+    expect(r.mutations).toHaveLength(2)
+    await r.commit(1)
+    r.render()
+    r.statuses[0].resolve(emptyDrive); await retry
+    expect(r.kind()).toBeNull()
+    expect(r.workspace().snapshot.organizations).toHaveLength(1)
+  })
+  it('refuses pending dismissal and treats failed post-commit Drive status as saved', async () => {
+    const r = await openingSpaceHarness()
+    r.input().props.onChange({ target: { value: 'Committed despite status failure' } })
+    const pending = r.submit(); await flush(); await r.commit()
+    expect(r.dismiss()).toBe(false)
+    expect(r.input().props.value).toBe('Committed despite status failure')
+    r.statuses[0].reject(new Error('Synthetic status unavailable')); await pending
+    expect(r.kind()).toBeNull()
+    expect(r.workspace().snapshot.organizations).toHaveLength(1)
+  })
+  it('does not let old creation completion reset navigation after an explicit space entry', async () => {
+    const r = await openingSpaceHarness()
+    r.input().props.onChange({ target: { value: 'Committed first space' } })
+    const pending = r.submit(); await flush(); await r.commit()
+    r.navigate(r.workspace().snapshot.organizations[0].id)
+    expect(r.kind()).toBeNull()
+    find(r.render(), e => e.type === 'button' && e.key === 'people').props.onClick()
+    expect(find(r.render(), e => e.type === 'h1').props.children).toBe(tr('Personas'))
+    r.statuses[0].resolve(emptyDrive); await pending
+    expect(find(r.render(), e => e.type === 'h1').props.children).toBe(tr('Personas'))
+    expect(r.kind()).toBeNull()
+  })
+})
+
+describe('Event document action accessibility', () => {
+  it.each([390, 1200])('keeps an explicit localized name at viewport width %s', (width) => {
+    window.innerWidth = width
+    const s = fixture(), openDocument = vi.fn()
+    test.context = { mutate: vi.fn(), notify: vi.fn() }
+    const hooks = new test.Hooks()
+    const tree = hooks.render(() => EventView({
+      s, event: s.events[0], edit: vi.fn(), document: openDocument, openMember: vi.fn(),
+    }))
+    const action = find(tree, (element) => element.type === 'button' && element.props.onClick === openDocument)
+    // Phone CSS hides the caption, so it cannot be the button's only accessible name.
+    expect(action.props['aria-label']).toBe(tr('Documento'))
+    action.props.onClick()
+    expect(openDocument).toHaveBeenCalledTimes(1)
+  })
+})
+
+
+describe('Toast contents and actions across document-sheet dismissal', () => {
+  function harness(toast: { message: string; error?: boolean; undo?: () => void }) {
+    window.innerWidth = 390
+    test.context = { snapshot: fixture(), initialOrganizationID: 'org', drive: emptyDrive,
+      driveBusy: false, demo: true, loading: false, fault: '', busy: false, notify: vi.fn(), toast }
+    const hooks = new test.Hooks()
+    const render = () => hooks.render(() => App())
+    component(render(), 'Agenda').props.select('event')
+    const notification = () => invoke(component(render(), 'Toast'))
+    const sheet = () => find(render(), element => element.type === Sheet && element.props.title === tr('Documento'))
+    return { notification, sheet, open: () => component(render(), 'EventView').props.document() }
+  }
+
+  it.each([false, true])('preserves %s error state and the same Undo action after a Sheet closes', error => {
+    const undo = vi.fn(), r = harness({ message: 'Synthetic reversible notice', error, undo })
+    const notice = () => find(r.notification(), element => element.props.role === (error ? 'alert' : 'status'))
+    expect(notice().props.className).toBe(`nx-toast ${error ? 'error' : ''}`)
+    r.open()
+    expect(r.sheet().props.open).toBe(true)
+    expect(find(notice(), element => element.type === 'span').props.children).toBe('Synthetic reversible notice')
+    expect(undo).not.toHaveBeenCalled()
+    r.sheet().props.onClose()
+    expect(r.sheet().props.open).toBe(false)
+    const action = find(notice(), element => element.type === 'button')
+    expect(action.props.children).toBe(tr('Deshacer'))
+    expect(action.props.onClick).toBe(undo)
+    action.props.onClick()
+    expect(undo).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves an ordinary informational notice without inventing an action', () => {
+    const r = harness({ message: 'Synthetic information' })
+    r.open(); r.sheet().props.onClose()
+    const notice = find(r.notification(), element => element.props.role === 'status')
+    expect(find(notice, element => element.type === 'span').props.children).toBe('Synthetic information')
+    expect(() => find(notice, element => element.type === 'button')).toThrow()
+  })
+})
+
+function legacyVolunteerFixture(cancelled = false) {
+  const s = fixture()
+  s.events[0] = { ...s.events[0], volunteerCapacity: 1, isCancelled: cancelled }
+  s.members.push(
+    ...['bea', 'cora', 'dora'].map((id) => ({
+      id,
+      organizationID: 'org',
+      name: id,
+      isActive: true,
+    })),
+  )
+  s.volunteers = [
+    {
+      id: 'selection',
+      eventID: 'event',
+      memberID: 'member',
+      status: 'selected',
+      registeredAt: '2026-10-01T10:00:00Z',
+    },
+    {
+      id: 'completion',
+      eventID: 'event',
+      memberID: 'bea',
+      status: 'completed',
+      registeredAt: '2026-10-01T11:00:00Z',
+    },
+    {
+      id: 'waiting',
+      eventID: 'event',
+      memberID: 'cora',
+      status: 'interested',
+      registeredAt: '2026-10-01T12:00:00Z',
+    },
+    {
+      id: 'history',
+      eventID: 'event',
+      memberID: 'dora',
+      status: 'noShow',
+      registeredAt: '2026-09-01T12:00:00Z',
+    },
+  ]
+  return s
+}
+const legacyOccupied = (s: ReturnType<typeof fixture>) =>
+  s.volunteers.filter((v) => v.status === 'selected' || v.status === 'completed').length
+function legacyVolunteerUI(cancelled = false) {
+  let s = legacyVolunteerFixture(cancelled)
+  const eventHooks = new test.Hooks(),
+    volunteerHooks = new test.Hooks(),
+    moreHooks = new test.Hooks()
+  const failures: Error[] = []
+  const mutate = vi.fn(async (action: Parameters<typeof simulateAction>[1]) => {
+    try {
+      s = simulateAction(s, action)
+      return s
+    } catch (error) {
+      failures.push(error as Error)
+      throw error
+    }
+  })
+  test.context = { mutate, busy: false, notify: vi.fn() }
+  const event = () =>
+    eventHooks.render(() =>
+      EventView({ s, event: s.events[0], edit: vi.fn(), document: vi.fn(), openMember: vi.fn() }),
+    )
+  component(event(), 'Segmented').props.onChange('volunteers')
+  const render = () => volunteerHooks.render(() => invoke(component(event(), 'Volunteers')))
+  const more = () => moreHooks.render(() => invoke(component(render(), 'VolunteerMore')))
+  const release = () => {
+    find(
+      more(),
+      (e) => e.type === 'button' && e.props['aria-label'] === tr('Más opciones'),
+    ).props.onClick()
+    find(
+      more(),
+      (e) =>
+        typeof e.type === 'function' &&
+        e.type.name === 'MenuItem' &&
+        e.props.children === tr('Retirar y liberar cupo'),
+    ).props.onClick()
+  }
+  return { snapshot: () => s, failures, mutate, render, release }
+}
+
+describe('Legacy volunteer capacity repairs and cancelled-event parity', () => {
+  it('permits a deliberate capacity increase without changing any volunteer history', () => {
+    const s = legacyVolunteerFixture(),
+      before = structuredClone(s)
+    const repaired = simulateAction(s, {
+      kind: 'updateEvent',
+      entity: { ...s.events[0], volunteerCapacity: 2 },
+    })
+    expect(repaired.events[0].volunteerCapacity).toBe(2)
+    expect(repaired.volunteers).toEqual(before.volunteers)
+    expect(s).toEqual(before)
+  })
+  it('actual event-form Plus and Submit raise capacity and preserve history', async () => {
+    const s = legacyVolunteerFixture(),
+      before = structuredClone(s)
+    let result = s
+    const mutate = vi.fn(async (action: Parameters<typeof simulateAction>[1]) => {
+      result = simulateAction(result, action)
+      return result
+    })
+    const r = eventForm(s, 'edit', mutate)
+    find(
+      r.render(),
+      (e) => e.type === 'button' && e.props['aria-label'] === tr('Más cupos'),
+    ).props.onClick()
+    expect(find(r.render(), (e) => e.type === 'output').props.children).toBe(2)
+    await r.render().props.onSubmit({ preventDefault: vi.fn() })
+    expect(mutate).toHaveBeenCalledOnce()
+    expect(r.close).toHaveBeenCalledOnce()
+    expect(result.events[0].volunteerCapacity).toBe(2)
+    expect(result.volunteers).toEqual(before.volunteers)
+    expect(s).toEqual(before)
+  })
+  it('actual selected-row release callback frees one place and retains every row', async () => {
+    const r = legacyVolunteerUI(),
+      before = structuredClone(r.snapshot())
+    r.release()
+    await flush()
+    expect(r.failures).toEqual([])
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.snapshot().volunteers).toEqual(
+      before.volunteers.map((v) => (v.id === 'selection' ? { ...v, status: 'declined' } : v)),
+    )
+    expect(legacyOccupied(r.snapshot())).toBe(1)
+    expect(r.snapshot().events).toEqual(before.events)
+  })
+  it('selected no-show repair frees capacity without deleting history', () => {
+    const s = legacyVolunteerFixture()
+    const result = simulateAction(s, {
+      kind: 'volunteer',
+      eventID: 'event',
+      memberID: 'member',
+      status: 'noShow',
+    })
+    expect(legacyOccupied(result)).toBe(1)
+    expect(result.volunteers).toEqual(
+      s.volunteers.map((v) => (v.id === 'selection' ? { ...v, status: 'noShow' } : v)),
+    )
+  })
+  it('completion preserves occupancy and completed-history rows', () => {
+    const s = legacyVolunteerFixture()
+    const result = simulateAction(s, {
+      kind: 'volunteer',
+      eventID: 'event',
+      memberID: 'member',
+      status: 'completed',
+    })
+    expect(legacyOccupied(result)).toBe(2)
+    expect(result.volunteers.find((v) => v.id === 'completion')).toEqual(
+      s.volunteers.find((v) => v.id === 'completion'),
+    )
+  })
+  it('rejects insufficient capacity atomically rather than stranding or deleting rows', () => {
+    const s = legacyVolunteerFixture(),
+      before = structuredClone(s)
+    expect(() =>
+      simulateAction(s, { kind: 'updateEvent', entity: { ...s.events[0], volunteerCapacity: 1 } }),
+    ).toThrow(tr('Hay más voluntarios seleccionados que cupos.'))
+    expect(s).toEqual(before)
+  })
+  it.each(['declined', 'noShow'])('does not rewrite a completed row to %s', (status) => {
+    const s = legacyVolunteerFixture(),
+      before = structuredClone(s)
+    expect(() =>
+      simulateAction(s, { kind: 'volunteer', eventID: 'event', memberID: 'bea', status }),
+    ).toThrow(tr('No se puede realizar ese cambio.'))
+    expect(s).toEqual(before)
+  })
+  it('blocks additional selection while over capacity and disables Choose', () => {
+    const r = legacyVolunteerUI(),
+      before = structuredClone(r.snapshot())
+    const choose = find(r.render(), (e) => e.type === 'button' && e.props.children === tr('Elegir'))
+    expect(choose.props.disabled).toBe(true)
+    expect(() =>
+      simulateAction(r.snapshot(), {
+        kind: 'volunteer',
+        eventID: 'event',
+        memberID: 'cora',
+        status: 'selected',
+      }),
+    ).toThrow(tr('Los cupos están completos.'))
+    expect(r.snapshot()).toEqual(before)
+  })
+  it('still blocks selection on a cancelled event with spare capacity', () => {
+    const s = legacyVolunteerFixture(true)
+    s.events[0].volunteerCapacity = 3
+    expect(() =>
+      simulateAction(s, {
+        kind: 'volunteer',
+        eventID: 'event',
+        memberID: 'cora',
+        status: 'selected',
+      }),
+    ).toThrow(tr('El voluntariado no está disponible.'))
+  })
+  it.each(['declined', 'noShow', 'completed'])(
+    'matches native finalization policy on a cancelled event: %s',
+    (status) => {
+      const s = legacyVolunteerFixture(true),
+        before = structuredClone(s)
+      const result = simulateAction(s, {
+        kind: 'volunteer',
+        eventID: 'event',
+        memberID: 'member',
+        status,
+      })
+      expect(result.volunteers).toEqual(
+        before.volunteers.map((v) => (v.id === 'selection' ? { ...v, status } : v)),
+      )
+      expect(result.events).toEqual(before.events)
+      expect(s).toEqual(before)
+    },
+  )
+  it('actual cancelled-event release menu matches native repair policy', async () => {
+    const r = legacyVolunteerUI(true),
+      before = structuredClone(r.snapshot())
+    r.release()
+    await flush()
+    expect(r.failures).toEqual([])
+    expect(r.snapshot().volunteers).toEqual(
+      before.volunteers.map((v) => (v.id === 'selection' ? { ...v, status: 'declined' } : v)),
+    )
+  })
+  it('matches native withdrawal for an interested applicant on a cancelled event', () => {
+    const s = legacyVolunteerFixture(true), before = structuredClone(s)
+    const result = simulateAction(s, {
+      kind: 'volunteer', eventID: 'event', memberID: 'cora', status: 'declined',
+    })
+    expect(result.volunteers).toEqual(
+      before.volunteers.map(v => v.id === 'waiting' ? { ...v, status: 'declined' } : v),
+    )
+    expect(result.events).toEqual(before.events)
+    expect(s).toEqual(before)
+  })
+})
+
+function attendanceKeyboardHarness(
+  mutate: ReturnType<typeof vi.fn<(action: Parameters<typeof simulateAction>[1]) => Promise<ReturnType<typeof fixture> | void>>>,
+  memberCount = 3,
+  applySnapshot = false,
+) {
+  let s = fixture()
+  const names = ['Ana', 'Bea', 'Cora', ...Array.from({ length: Math.max(0, memberCount - 3) }, (_, i) => `Extra ${i}`)]
+  s.members = names.map((name, index) => ({
+    id: `member-${index}`, organizationID: 'org', name, isActive: true,
+  }))
+  s.attendance = s.members.map((member, index) => ({
+    id: `row-${index}`, eventID: 'event', memberID: member.id,
+    status: 'pending', isVoided: false, note: '',
+  }))
+  const notify = vi.fn()
+  test.context = { mutate: applySnapshot ? async (action: Parameters<typeof simulateAction>[1]) => {
+    s = await mutate(action) as ReturnType<typeof fixture>
+    return s
+  } : mutate, notify }
+  const eventHooks = new test.Hooks(), rollHooks = new test.Hooks()
+  const render = () => {
+    const event = eventHooks.render(() => EventView({
+      s, event: s.events[0], edit: vi.fn(), document: vi.fn(), openMember: vi.fn(),
+    }))
+    return rollHooks.render(() => invoke(component(event, 'Roll')))
+  }
+  const focused = () => {
+    try {
+      return find(render(), e =>
+        typeof e.type === 'function' && e.type.name === 'RollRow' && e.props.focused,
+      ).props.row.memberID
+    } catch { return null }
+  }
+  const press = (key: string) => window.dispatchEvent(Object.assign(
+    new Event('keydown', { cancelable: true }), { key },
+  ))
+  render()
+  return { get s() { return s }, mutate, notify, render, focused, press }
+}
+
+describe('Attendance keyboard retains the current person after a refused or failed mark', () => {
+  it('does not advance or write when the event is cancelled', async () => {
+    const r = attendanceKeyboardHarness(vi.fn().mockResolvedValue(fixture()))
+    r.s.events[0].isCancelled = true
+    r.render()
+    r.press('1')
+    await flush()
+    expect(r.mutate).not.toHaveBeenCalled()
+    expect(r.focused()).toBe('member-0')
+  })
+
+  it('does not advance or write when the focused record is excluded', async () => {
+    const r = attendanceKeyboardHarness(vi.fn().mockResolvedValue(fixture()))
+    r.s.attendance.forEach(row => { row.isVoided = true })
+    find(r.render(), e => e.type === 'button' && e.props.className === 'nx-link subtle').props.onClick()
+    r.render()
+    r.press('1')
+    await flush()
+    expect(r.mutate).not.toHaveBeenCalled()
+    expect(r.focused()).toBe('member-0')
+  })
+
+  it('keeps the failed person focused and pending so the operator can retry', async () => {
+    const r = attendanceKeyboardHarness(vi.fn().mockRejectedValue(new Error('Synthetic save failure')))
+    expect(r.focused()).toBe('member-0')
+    r.press('1')
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.mutate).toHaveBeenCalledWith({
+      kind: 'attendance', eventID: 'event', memberID: 'member-0', status: 'present', expectedStatus: 'pending',
+    })
+    expect(r.s.attendance[0].status).toBe('pending')
+    expect(r.notify).not.toHaveBeenCalled()
+    expect(r.focused()).toBe('member-0')
+  })
+
+  it('does not advance for a keyboard mark refused while another mark is pending', async () => {
+    let resolve!: () => void
+    const r = attendanceKeyboardHarness(vi.fn(() => new Promise<void>(done => { resolve = done })))
+    r.press('1')
+    r.render() // Commit the visible saving state before the second key.
+    r.press('2')
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.focused()).toBe('member-0')
+    resolve()
+    await flush()
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('advances exactly one person for a successful mark', async () => {
+    const r = attendanceKeyboardHarness(vi.fn().mockResolvedValue(fixture()))
+    r.press('1')
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.notify).toHaveBeenCalledOnce()
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('preserves successful marking and its expected-status Undo action', async () => {
+    const mutate = vi.fn(async (action: Parameters<typeof simulateAction>[1]) => simulateAction(r.s, action))
+    const r = attendanceKeyboardHarness(mutate, 3, true)
+    r.press('3')
+    await flush()
+    expect(r.s.attendance[0].status).toBe('excused')
+    expect(r.focused()).toBe('member-1')
+    expect(r.notify.mock.calls[0][0]).toContain('Ana')
+    expect(r.notify.mock.calls[0][1]).toBe(false)
+    await r.notify.mock.calls[0][2]()
+    await flush()
+    expect(r.mutate).toHaveBeenLastCalledWith({
+      kind: 'attendance', eventID: 'event', memberID: 'member-0', status: 'pending', expectedStatus: 'excused',
+    })
+    expect(r.s.attendance[0].status).toBe('pending')
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('retries the same person after failure instead of silently marking the next row', async () => {
+    const r = attendanceKeyboardHarness(vi.fn()
+      .mockRejectedValueOnce(new Error('Synthetic save failure'))
+      .mockResolvedValueOnce(fixture()))
+    r.press('1')
+    await flush()
+    r.render()
+    r.press('1')
+    await flush()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    expect(r.mutate.mock.calls.map(([action]) => action.memberID)).toEqual(['member-0', 'member-0'])
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('does not double-advance when the original pending mark finally succeeds', async () => {
+    let resolve!: () => void
+    const r = attendanceKeyboardHarness(vi.fn(() => new Promise<void>(done => { resolve = done })))
+    r.press('1')
+    r.render()
+    r.press('2')
+    await flush()
+    resolve()
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('keeps the existing no-explicit-advance behavior in the pending filter', async () => {
+    const r = attendanceKeyboardHarness(vi.fn().mockResolvedValue(fixture()))
+    find(r.render(), e => e.type === 'button' && e.props.className === 'nx-tally-count pending').props.onClick()
+    r.render()
+    r.press('1')
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.focused()).toBe('member-0')
+  })
+
+  it('synchronously accepts only one keyboard mark before rerender', async () => {
+    let resolve!: () => void
+    const pending = new Promise<void>(done => { resolve = done })
+    const r = attendanceKeyboardHarness(vi.fn(() => pending))
+    r.press('1')
+    r.press('1')
+    resolve()
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('does not override ArrowDown navigation when an earlier mark completes', async () => {
+    let resolve!: () => void
+    const r = attendanceKeyboardHarness(vi.fn(() => new Promise<void>(done => { resolve = done })))
+    r.press('1')
+    r.render()
+    r.press('ArrowDown')
+    expect(r.focused()).toBe('member-1')
+    resolve()
+    await flush()
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('does not override a newer pending-filter choice when an earlier mark completes', async () => {
+    let resolve!: () => void
+    const r = attendanceKeyboardHarness(vi.fn(() => new Promise<void>(done => { resolve = done })))
+    r.press('1')
+    find(r.render(), e => e.type === 'button' && e.props.className === 'nx-tally-count pending').props.onClick()
+    expect(r.focused()).toBe('member-0')
+    resolve()
+    await flush()
+    expect(r.focused()).toBe('member-0')
+  })
+
+  it('does not move focus away from a newer search result when an earlier mark completes', async () => {
+    let resolve!: () => void
+    const r = attendanceKeyboardHarness(vi.fn(() => new Promise<void>(done => { resolve = done })), 12)
+    r.press('1')
+    find(r.render(), e => e.type === 'input' && e.props.type === 'search').props.onChange({ target: { value: 'Bea' } })
+    expect(r.focused()).toBe('member-1')
+    resolve()
+    await flush()
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('keeps the next remaining person focused after a mark leaves the present filter', async () => {
+    const mutate = vi.fn(async (action: Parameters<typeof simulateAction>[1]) => simulateAction(r.s, action))
+    const r = attendanceKeyboardHarness(mutate, 3, true)
+    r.s.attendance.forEach(row => { row.status = 'present' })
+    find(r.render(), e => e.type === 'button' && e.props.className === 'nx-tally-count present').props.onClick()
+    expect(r.focused()).toBe('member-0')
+    r.press('2')
+    await flush()
+    expect(r.s.attendance[0].status).toBe('absent')
+    expect(r.s.attendance[1].status).toBe('present')
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('clamps the highlight to the remaining row when the final filtered person is removed', async () => {
+    const mutate = vi.fn(async (action: Parameters<typeof simulateAction>[1]) => simulateAction(r.s, action))
+    const r = attendanceKeyboardHarness(mutate, 3, true)
+    r.s.attendance.forEach(row => { row.status = 'present' })
+    find(r.render(), e => e.type === 'button' && e.props.className === 'nx-tally-count present').props.onClick()
+    r.render()
+    r.press('ArrowDown')
+    r.render()
+    r.press('ArrowDown')
+    expect(r.focused()).toBe('member-2')
+    r.press('2')
+    await flush()
+    expect(r.s.attendance[2].status).toBe('absent')
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('preserves next-person targeting in the pending filter after a committed snapshot removes the row', async () => {
+    const mutate = vi.fn(async (action: Parameters<typeof simulateAction>[1]) => simulateAction(r.s, action))
+    const r = attendanceKeyboardHarness(mutate, 3, true)
+    find(r.render(), e => e.type === 'button' && e.props.className === 'nx-tally-count pending').props.onClick()
+    r.render()
+    r.press('1')
+    await flush()
+    expect(r.s.attendance[0].status).toBe('present')
+    expect(r.focused()).toBe('member-1')
+  })
+})
+
+
+describe('Imported background identity and loading state', () => {
+  const words = (node: unknown): string => {
+    if (typeof node === 'string' || typeof node === 'number') return String(node)
+    if (Array.isArray(node)) return node.map(words).join(' ')
+    if (node && typeof node === 'object' && 'props' in node) return words((node as Element).props.children)
+    return ''
+  }
+  const namedButton = (tree: unknown, name: string) => find(tree, el => el.type === 'button' && words(el.props.children).trim() === name)
+  function editor(mobile = true, offset = 200, textY = 100) {
+    if (mobile) window.nexoDevice = 'iPhone'
+    const s = fixture(), template = { ...newTemplate('org'), backgroundPDFData: 'old-pdf', listPageIndex: 0, tableTopOffset: offset,
+      textBlocks: [{ id: 'text', text: 'Synthetic heading', x: 46, y: textY, width: 220, fontSize: 14 }] }
+    s.templates = [template]
+    const requests: { data: string; index: number; resolve: (result: unknown) => void; reject: (error: Error) => void }[] = []
+    let imported = { data: 'new-pdf', image: 'new-import-image', listPageIndex: 0, pages: [{ width: 900, height: 1200 }] }
+    const notify = vi.fn(), mutate = vi.fn().mockResolvedValue(s), hooks = new test.Hooks(), mobileHooks = new test.Hooks()
+    test.context = { mutate, notify, demo: true, busy: false }
+    test.bridge.mockImplementation(({ command, data, index }) => {
+      if (command === 'backgroundPage') return new Promise((resolve, reject) => requests.push({ data, index, resolve, reject }))
+      if (command === 'importPDF') return Promise.resolve(imported)
+      return Promise.resolve({})
+    })
+    const render = () => hooks.render(() => DocumentStudio({ s, orgID: 'org', initial: template, back: vi.fn() }))
+    const props = () => component(render(), 'MobileStudio').props
+    const mobileTree = () => mobileHooks.render(() => invoke(component(render(), 'MobileStudio')))
+    const panel = (name: string) => { namedButton(mobileTree(), tr(name)).props.onClick(); return mobileTree() }
+    const pageSelect = () => find(mobileTree(), el => el.type === 'label' && words(el.props.children).startsWith(tr('Página del PDF'))).props.children.find((el: Element) => el?.type === 'select') as Element
+    const rowHeight = (value: number) => {
+      panel('Formato')
+      const range = find(mobileTree(), el => typeof el.type === 'function' && el.type.name === 'Range' && el.props.label === tr('Altura de fila'))
+      find(invoke(range), el => el.type === 'input').props.onChange({ target: { value: String(value) } })
+    }
+    render()
+    return { render, props, mobileTree, panel, pageSelect, rowHeight, requests, notify, mutate,
+      importPDF: async () => { namedButton(panel('Documento'), tr('Cambiar PDF')).props.onClick(); await flush(); props() },
+      resolve: async (i: number, image = `image-${i}`, pages = [{ width: 320, height: 350 }, { width: 612, height: 792 }]) => {
+        requests[i].resolve({ image, pages }); await flush(); render()
+      },
+      reject: async (i: number) => { requests[i].reject(new Error('Synthetic background failure')); await flush(); render() },
+      setImported: (value: typeof imported) => { imported = value },
+    }
+  }
+
+  it('does not show the previous page image while a selected page is loading', async () => {
+    const r = editor()
+    await r.resolve(0)
+    r.panel('Documento'); r.pageSelect().props.onChange({ target: { value: '1' } })
+    const p = r.props()
+    expect(p.draft.listPageIndex).toBe(1)
+    expect(p.page).toEqual({ width: 612, height: 792 })
+    expect(p.background?.image).not.toBe('image-0')
+  })
+
+  it('does not leave a previous page image after the current page fails to load', async () => {
+    const r = editor()
+    await r.resolve(0)
+    r.panel('Documento'); r.pageSelect().props.onChange({ target: { value: '1' } }); r.props()
+    await r.reject(1)
+    expect(r.notify).toHaveBeenCalledWith(expect.stringContaining('Synthetic background failure'), true)
+    expect(r.props().draft.listPageIndex).toBe(1)
+    expect(r.props().background?.image).not.toBe('image-0')
+  })
+
+  it('does not offer a previous PDF page index after importing a one-page replacement', async () => {
+    const r = editor()
+    await r.resolve(0)
+    await r.importPDF()
+    expect(r.props().draft.backgroundPDFData).toBe('new-pdf')
+    let stalePage: Element | undefined
+    try { stalePage = find(r.pageSelect(), el => el.type === 'option' && el.props.value === 1 && !el.props.disabled) } catch { /* No stale selector is also safe. */ }
+    expect(stalePage).toBeUndefined()
+  })
+
+  it('does not let an old PDF page selector write an invalid index into its replacement', async () => {
+    const r = editor()
+    await r.resolve(0)
+    await r.importPDF()
+    let oldSelect: Element | undefined
+    try {
+      const select = r.pageSelect()
+      find(select, el => el.type === 'option' && el.props.value === 1 && !el.props.disabled)
+      oldSelect = select
+    } catch { /* Hiding an unavailable page selector is safe. */ }
+    oldSelect?.props.onChange({ target: { value: '1' } })
+    const p = r.props()
+    expect(p.draft.backgroundPDFData).toBe('new-pdf')
+    expect(p.draft.listPageIndex).toBe(0)
+    expect(r.requests.some(request => request.data === 'new-pdf' && request.index === 1)).toBe(false)
+  })
+
+  it('does not clamp the new taller paper geometry against the previous shorter PDF', async () => {
+    const r = editor()
+    await r.resolve(0)
+    await r.importPDF()
+    r.rowHeight(80)
+    expect(r.props().draft.rowHeight).toBe(80)
+    expect(r.props().draft.tableTopOffset).toBe(200)
+  })
+
+  it('does not use fallback Letter bounds to move existing imported text before its page loads', () => {
+    const r = editor(true, 200, 800)
+    let input: Element | undefined
+    try {
+      component(r.mobileTree(), 'MobilePaper').props.onEdit('text', 'elements')
+      const range = find(r.mobileTree(), el => typeof el.type === 'function' && el.type.name === 'Range' && el.props.label === tr('Tamaño del texto'))
+      input = find(invoke(range), el => el.type === 'input')
+    } catch { /* A loading view may hide geometry controls until dimensions are known. */ }
+    if (input && !input.props.disabled) input.props.onChange({ target: { value: '32' } })
+    expect(r.props().draft.textBlocks[0].y).toBe(800)
+  })
+
+  it('retains existing tall-page text position once matching dimensions are available', async () => {
+    const r = editor(true, 200, 800)
+    await r.resolve(0, 'tall-paper', [{ width: 900, height: 1200 }])
+    component(r.mobileTree(), 'MobilePaper').props.onEdit('text', 'elements')
+    const range = find(r.mobileTree(), el => typeof el.type === 'function' && el.type.name === 'Range' && el.props.label === tr('Tamaño del texto'))
+    find(invoke(range), el => el.type === 'input').props.onChange({ target: { value: '32' } })
+    expect(r.props().draft.textBlocks[0]).toMatchObject({ y: 800, fontSize: 32 })
+  })
+
+  it('clears desktop loading when the actual blank-paper action removes a pending PDF', async () => {
+    const r = editor(false)
+    expect(words(r.render())).toContain(tr('· Cargando PDF…'))
+    namedButton(r.render(), tr('Volver a hoja en blanco')).props.onClick()
+    expect(words(r.render())).not.toContain(tr('· Cargando PDF…'))
+    await r.resolve(0)
+    expect(words(r.render())).not.toContain(tr('· Cargando PDF…'))
+    expect(() => find(r.render(), el => el.type === 'img' && el.props.className === 'pdf-background')).toThrow()
+  })
+
+  it('keeps only the latest successful page after overlapping page requests', async () => {
+    const r = editor()
+    await r.resolve(0)
+    r.panel('Documento'); r.pageSelect().props.onChange({ target: { value: '1' } }); r.props()
+    r.pageSelect().props.onChange({ target: { value: '0' } }); r.props()
+    await r.resolve(2, 'latest-page')
+    await r.resolve(1, 'stale-page')
+    expect(r.props().background.image).toBe('latest-page')
+    expect(r.props().draft.listPageIndex).toBe(0)
+  })
+
+  it('keeps a deliberate blank-paper choice after the old request fails', async () => {
+    const r = editor()
+    namedButton(r.panel('Documento'), tr('Usar hoja en blanco')).props.onClick(); r.props()
+    await r.reject(0)
+    expect(r.props().draft.backgroundPDFData).toBeUndefined()
+    expect(r.props().background).toBeNull()
+    expect(r.props().page).toEqual({ width: 612, height: 792 })
+    expect(r.notify).not.toHaveBeenCalled()
+  })
+
+  it('keeps unknown imported geometry unchanged while content edits and Save remain available', async () => {
+    const r = editor(true, 500, 800), before = structuredClone(r.props().draft)
+    expect(r.props().pageReady).toBe(false)
+    r.props().patch({ rowHeight: 80, tableTopOffset: 100 })
+    r.props().patch({ textBlocks: [{ ...before.textBlocks[0], y: 712, fontSize: 32 }] })
+    r.props().patch({ name: 'Edited name', accentHex: '#007AFF', textBlocks: [{ ...before.textBlocks[0], text: 'Edited content' }] })
+    await r.props().save()
+    const saved = r.mutate.mock.calls[0][0].entity
+    expect(saved).toEqual({ ...before, name: 'Edited name', accentHex: '#007AFF', textBlocks: [{ ...before.textBlocks[0], text: 'Edited content' }] })
+    expect(r.requests).toHaveLength(1)
+  })
+
+  it('retries a failed initial page without fitting or changing the saved geometry', async () => {
+    const r = editor(true, 500, 800), before = structuredClone(r.props().draft)
+    await r.reject(0)
+    expect(r.props().pageReady).toBe(false)
+    expect(r.props().backgroundError).toContain('Synthetic background failure')
+    const retry = namedButton(r.mobileTree(), tr('Reintentar'))
+    retry.props.onClick()
+    expect(r.props().backgroundBusy).toBe(true)
+    expect(r.requests[1]).toMatchObject({ data: 'old-pdf', index: 0 })
+    await r.resolve(1, 'retried-paper', [{ width: 900, height: 1200 }])
+    expect(r.props().pageReady).toBe(true)
+    expect(r.props().backgroundError).toBe('')
+    expect(r.props().backgroundBusy).toBe(false)
+    expect(r.props().draft).toEqual(before)
+    expect(r.props().canUndo).toBe(false)
+  })
+
+  it('can save a copy without rewriting geometry while the background is unresolved', async () => {
+    const r = editor(true, 500, 800), before = structuredClone(r.props().draft)
+    await r.props().saveCopy()
+    const copy = r.mutate.mock.calls[0][0].entity
+    expect(copy.id).not.toBe(before.id)
+    expect(copy).toEqual({ ...before, id: copy.id, name: before.name + ' ' + tr('· copia') })
+    expect(r.props().draft.textBlocks).toEqual(before.textBlocks)
+    expect(r.props().draft.tableTopOffset).toBe(before.tableTopOffset)
+    expect(r.props().pageReady).toBe(false)
+  })
+
+  it('retains matching page dimensions after a thumbnail failure', async () => {
+    const r = editor()
+    await r.resolve(0, 'short-paper', [{ width: 320, height: 350 }, { width: 900, height: 1200 }])
+    r.props().changePage(1); r.props()
+    await r.reject(1)
+    expect(r.props().pageReady).toBe(true)
+    expect(r.props().page).toEqual({ width: 900, height: 1200 })
+    r.rowHeight(80)
+    expect(r.props().draft).toMatchObject({ listPageIndex: 1, rowHeight: 80, tableTopOffset: 200 })
+    expect(r.props().background.image).toBe('')
+  })
+
+  it('guards a retained geometry callback after the PDF source changes', async () => {
+    const r = editor(true, 500, 800)
+    await r.resolve(0, 'old-tall-paper', [{ width: 900, height: 1200 }])
+    component(r.mobileTree(), 'MobilePaper').props.onEdit('text', 'elements')
+    const range = find(r.mobileTree(), el => typeof el.type === 'function' && el.type.name === 'Range' && el.props.label === tr('Tamaño del texto'))
+    const oldInput = find(invoke(range), el => el.type === 'input')
+    r.props().patch({ backgroundPDFData: 'unknown-pdf' }); r.props()
+    oldInput.props.onChange({ target: { value: '32' } })
+    expect(r.props().draft.textBlocks[0]).toMatchObject({ y: 800, fontSize: 14 })
+  })
+
+  it('does not begin desktop geometry dragging before imported dimensions are known', () => {
+    const r = editor(false, 500, 800), capture = vi.fn()
+    const handle = find(r.render(), el => el.type === 'button' && el.props['aria-label'] === tr('Mover texto'))
+    expect(handle.props.disabled).toBe(true)
+    handle.props.onPointerDown({ preventDefault: vi.fn(), stopPropagation: vi.fn(), clientX: 0, clientY: 0, pointerId: 1, currentTarget: { setPointerCapture: capture } })
+    window.dispatchEvent(Object.assign(new Event('pointermove'), { clientX: 10, clientY: 10 }))
+    expect(capture).not.toHaveBeenCalled()
+    const textarea = find(r.render(), el => el.type === 'textarea' && el.props['aria-label'] === tr('Texto sobre el papel'))
+    expect(textarea.props.style.fontSize).toBe(14)
+    const block = find(r.render(), el => el.type === 'div' && String(el.props.className).startsWith('paper-text-block'))
+    expect(block.props.style.top).toBe(800)
+  })
+
+  it('keeps the current metadata and draft if an imported replacement cannot fit', async () => {
+    const r = editor()
+    await r.resolve(0)
+    const before = structuredClone(r.props().draft)
+    r.setImported({ data: 'too-small', image: '', listPageIndex: 0, pages: [{ width: 200, height: 200 }] })
+    await r.importPDF()
+    expect(r.props().draft).toEqual(before)
+    expect(r.props().pageReady).toBe(true)
+    expect(r.props().page).toEqual({ width: 320, height: 350 })
+    expect(r.props().background.image).toBe('image-0')
+    expect(r.requests).toHaveLength(1)
+    expect(r.notify).toHaveBeenCalledOnce()
+  })
+
+  it('fits an explicit replacement using its dimensions, not the previous page limits', async () => {
+    const r = editor(true, 500)
+    await r.resolve(0)
+    await r.importPDF()
+    expect(r.props().draft.tableTopOffset).toBe(500)
+    expect(r.props().page).toEqual({ width: 900, height: 1200 })
+  })
+
+  it('does not install stale source metadata after a replacement is already current', async () => {
+    const r = editor()
+    await r.importPDF()
+    await r.resolve(0, 'stale-source', [{ width: 320, height: 350 }])
+    expect(r.props().page).toEqual({ width: 900, height: 1200 })
+    expect(r.props().background?.image).not.toBe('stale-source')
+    expect(r.props().draft.backgroundPDFData).toBe('new-pdf')
+  })
+})
+
+
+describe('Imported image completion during paper metadata reload', () => {
+  it('reports a refused late image append honestly and permits retry after paper metadata loads', async () => {
+    window.nexoDevice = 'iPhone'
+    const s = fixture(), template = { ...newTemplate('org'), backgroundPDFData: 'old-paper', listPageIndex: 0 }
+    template.imageBlocks = [{ id: 'existing', imageData: 'existing-image', x: 46, y: 46, width: 100, height: 100 }]
+    s.templates = [template]
+    const hooks = new test.Hooks(), backgrounds: ((value: unknown) => void)[] = []
+    let completeImage!: (value: unknown) => void
+    const notify = vi.fn()
+    test.context = { mutate: vi.fn(), notify, demo: true, busy: false }
+    test.bridge.mockImplementation(({ command }) => {
+      if (command === 'backgroundPage') return new Promise(resolve => backgrounds.push(resolve))
+      if (command === 'importPDF') return Promise.resolve({ data: 'new-paper', listPageIndex: 0, pages: [{ width: 900, height: 1200 }] })
+      if (command === 'importImage') return new Promise(resolve => { completeImage = resolve })
+      return Promise.resolve({})
+    })
+    const render = () => component(hooks.render(() => DocumentStudio({ s, orgID: 'org', initial: template, back: vi.fn() })), 'MobileStudio').props
+    render()
+    backgrounds[0]({ image: 'old-preview', pages: [{ width: 612, height: 792 }] })
+    await flush()
+    await render().importPDF()
+    const importing = render().importImage()
+    render().undo()
+    expect(render().draft.backgroundPDFData).toBe('old-paper')
+    // Its new background request is still unresolved; no current metadata is available.
+    expect(backgrounds).toHaveLength(3)
+    completeImage({ data: 'requested-image', width: 100, height: 100 })
+    const addedID = await importing
+    const images = render().draft.imageBlocks
+    expect(addedID).toBeUndefined()
+    expect(images).toEqual(template.imageBlocks)
+    expect(notify).toHaveBeenCalledWith(tr('Espera a que se cargue el PDF y vuelve a importar la imagen.'), true)
+    // No imported bytes or old geometry were changed; a deliberate retry can succeed.
+    backgrounds[2]({ image: 'reloaded-old-preview', pages: [{ width: 612, height: 792 }] })
+    await flush()
+    const retry = render().importImage()
+    completeImage({ data: 'retried-image', width: 100, height: 100 })
+    const retryID = await retry
+    expect(retryID).toBeTruthy()
+    expect(render().draft.imageBlocks).toEqual([
+      template.imageBlocks[0],
+      { id: retryID, imageData: 'retried-image', x: 46, y: 46, width: 160, height: 160 },
+    ])
+    expect(test.bridge.mock.calls.filter(([request]) => request.command === 'importImage')).toHaveLength(2)
+  })
+})

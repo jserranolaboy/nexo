@@ -1,0 +1,718 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		03BC4AFD4907ED3CD10D1898 /* IOSDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF111A299DC2580D0B9EA38B /* IOSDraftStore.swift */; };
+		177751412D3101930BEE4123 /* EventCreationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 351089871A51C0584DD227A4 /* EventCreationTests.swift */; };
+		1BD5F13DA13B07122228E71E /* WorkspaceStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 188F4708ADF388933BAF1346 /* WorkspaceStoreTests.swift */; };
+		1E1A14CF5F8664D355E68356 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97192699A4B0F8F3BD748901 /* AppDelegate.swift */; };
+		273744C269A3E5B6F56F4287 /* NexoCore in Frameworks */ = {isa = PBXBuildFile; productRef = FC9872BF2B26735E50CD987B /* NexoCore */; };
+		2B54B771EB5E6D0F5139B4C8 /* RemoteWorkspaceClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13B3789673C508A0523980B1 /* RemoteWorkspaceClientTests.swift */; };
+		2D8F38AC818A23C587A81245 /* EventFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A845F8BDAA77E1B35446BC6 /* EventFocusTests.swift */; };
+		31BC7BE7BDD0DEB8CD68C16E /* WorkspaceRulesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3F5EEE4B71DC8C3C5987259 /* WorkspaceRulesTests.swift */; };
+		35F87D8D438D079375A6E49F /* NexoViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CB9DACEABCA013DF05EFC02 /* NexoViewController.swift */; };
+		3AACC7E0DAB4DE1AFC844E3E /* SyncPlanningTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4FC2A2F786651096E328D41 /* SyncPlanningTests.swift */; };
+		3E9A284311FA4432FCBFF635 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 24601F4C64AA342433D04609 /* PrivacyInfo.xcprivacy */; };
+		492E5E863B739E600781CEB2 /* GoogleAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEB7556CE64A9B9D6299A026 /* GoogleAuthorizationTests.swift */; };
+		5D46226488444EE1C295AF0A /* SnapshotStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A7EF1D15C6CA9596F70B2C /* SnapshotStoreTests.swift */; };
+		60B89186F5056014D3B995FD /* IOSPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C682E87BAD7ABA98F6549D4F /* IOSPersistenceTests.swift */; };
+		7AAB6C992ADE0F4E55CD2749 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2F5B1F876F9389E983D2E2D6 /* Assets.xcassets */; };
+		87BE8793F852AAAFC72059CF /* LegacyImporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98629F0B47A81B91E1EC9B28 /* LegacyImporterTests.swift */; };
+		8F50F19741DA85BC6056AFB7 /* NexoKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2DA3BBF888CD2E430C82CF9E /* NexoKit */; };
+		9665F883B492DC20AB03D12C /* DriveSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE417B27714711C5128EE0A3 /* DriveSyncTests.swift */; };
+		9A002FA942830449650DF0D7 /* AttendancePDFTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06FE24F21AC9A92654AE0A55 /* AttendancePDFTests.swift */; };
+		B3F8AC8442C6FCB152BEC74F /* Web in Resources */ = {isa = PBXBuildFile; fileRef = 9FF122751B792EEAD5A483AC /* Web */; };
+		C397D8E85539DF7B1FC9758B /* NexoLocaleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA7F69FEE5ADD74878D086D /* NexoLocaleTests.swift */; };
+		C45FC988B2FC8B38F811762E /* NexoCore in Frameworks */ = {isa = PBXBuildFile; productRef = E196253590472EE9126BB116 /* NexoCore */; };
+		CAFA5F338D29F21AC29C58AA /* SyncCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD7F9C4EA2E8FF28992D571 /* SyncCoordinatorTests.swift */; };
+		D15E1F611851A8E963142D88 /* WorkspaceTransferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09B9CF1CF521CDEE9A604295 /* WorkspaceTransferTests.swift */; };
+		DFFF44DCE123E082189A2F58 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = C23EC81A8BBCD93F8245F9DB /* GoogleSignIn */; };
+		E955725958B6E680D9E57CB3 /* InteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 860BEF00AAE9BF08531848CE /* InteractionTests.swift */; };
+		ECE2AA16740049B965E65536 /* SpaceLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01831167A57EFB8D0D1F7E96 /* SpaceLifecycleTests.swift */; };
+		F43C9AFD0E5E4F182BF4855B /* IOSGoogleAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9104BAA959E468DD15B3E150 /* IOSGoogleAuthorization.swift */; };
+		F4D19DE788DEFA3F919DB4B4 /* NexoKit in Frameworks */ = {isa = PBXBuildFile; productRef = DA9FCE68AB07FB1DB34D34D1 /* NexoKit */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		2AC276A7647F23C86E49EE00 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 12D98C7F111EAF28A21AB02F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C4E0954F8678B2D21B30FB62;
+			remoteInfo = NexoIOS;
+		};
+		476AF61B4F21107F7BD5D602 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 12D98C7F111EAF28A21AB02F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C4E0954F8678B2D21B30FB62;
+			remoteInfo = NexoIOS;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		01831167A57EFB8D0D1F7E96 /* SpaceLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceLifecycleTests.swift; sourceTree = "<group>"; };
+		02A11D7C1DA889F76FBD37B2 /* Nexo.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Nexo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		06FE24F21AC9A92654AE0A55 /* AttendancePDFTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttendancePDFTests.swift; sourceTree = "<group>"; };
+		087B63FD0936C4D9C6FB24A5 /* NexoUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NexoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		09B9CF1CF521CDEE9A604295 /* WorkspaceTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTransferTests.swift; sourceTree = "<group>"; };
+		13B3789673C508A0523980B1 /* RemoteWorkspaceClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWorkspaceClientTests.swift; sourceTree = "<group>"; };
+		188F4708ADF388933BAF1346 /* WorkspaceStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStoreTests.swift; sourceTree = "<group>"; };
+		24601F4C64AA342433D04609 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		2CB9DACEABCA013DF05EFC02 /* NexoViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexoViewController.swift; sourceTree = "<group>"; };
+		2F5B1F876F9389E983D2E2D6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		351089871A51C0584DD227A4 /* EventCreationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventCreationTests.swift; sourceTree = "<group>"; };
+		7DA7F69FEE5ADD74878D086D /* NexoLocaleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexoLocaleTests.swift; sourceTree = "<group>"; };
+		860BEF00AAE9BF08531848CE /* InteractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractionTests.swift; sourceTree = "<group>"; };
+		8A845F8BDAA77E1B35446BC6 /* EventFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventFocusTests.swift; sourceTree = "<group>"; };
+		9104BAA959E468DD15B3E150 /* IOSGoogleAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSGoogleAuthorization.swift; sourceTree = "<group>"; };
+		97192699A4B0F8F3BD748901 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		98629F0B47A81B91E1EC9B28 /* LegacyImporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyImporterTests.swift; sourceTree = "<group>"; };
+		9FF122751B792EEAD5A483AC /* Web */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Web; path = Resources/Web; sourceTree = SOURCE_ROOT; };
+		A635B3F334DBE25823197EFC /* NexoTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NexoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AF111A299DC2580D0B9EA38B /* IOSDraftStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSDraftStore.swift; sourceTree = "<group>"; };
+		B3F5EEE4B71DC8C3C5987259 /* WorkspaceRulesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRulesTests.swift; sourceTree = "<group>"; };
+		C4FC2A2F786651096E328D41 /* SyncPlanningTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPlanningTests.swift; sourceTree = "<group>"; };
+		C682E87BAD7ABA98F6549D4F /* IOSPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSPersistenceTests.swift; sourceTree = "<group>"; };
+		CE417B27714711C5128EE0A3 /* DriveSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriveSyncTests.swift; sourceTree = "<group>"; };
+		CEB7556CE64A9B9D6299A026 /* GoogleAuthorizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleAuthorizationTests.swift; sourceTree = "<group>"; };
+		E1A7EF1D15C6CA9596F70B2C /* SnapshotStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotStoreTests.swift; sourceTree = "<group>"; };
+		F09CA7175AC4D3AC22C5890D /* Native */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Native; path = ../Native; sourceTree = SOURCE_ROOT; };
+		F19DB9610E1C39564BBFDEE3 /* Core */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Core; path = ../Core; sourceTree = SOURCE_ROOT; };
+		FBD7F9C4EA2E8FF28992D571 /* SyncCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCoordinatorTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8658E1E22A9CBFF42BD96D7B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C45FC988B2FC8B38F811762E /* NexoCore in Frameworks */,
+				8F50F19741DA85BC6056AFB7 /* NexoKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A842B8497633BC4645049FE0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				273744C269A3E5B6F56F4287 /* NexoCore in Frameworks */,
+				F4D19DE788DEFA3F919DB4B4 /* NexoKit in Frameworks */,
+				DFFF44DCE123E082189A2F58 /* GoogleSignIn in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		26A55398148C1FFA28F253C8 /* UITests */ = {
+			isa = PBXGroup;
+			children = (
+				860BEF00AAE9BF08531848CE /* InteractionTests.swift */,
+			);
+			path = UITests;
+			sourceTree = "<group>";
+		};
+		41C015ADE8992DAF36FFBF14 = {
+			isa = PBXGroup;
+			children = (
+				9FF122751B792EEAD5A483AC /* Web */,
+				A67D2A77571AA6C4FEB52029 /* NexoCoreTests */,
+				88B44E8CFBE8FD0FB6077073 /* NexoKitTests */,
+				CCAE32ECDD1B640FB19DB2EE /* Packages */,
+				FE341BE9B2A0D1F2493D4EDE /* Resources */,
+				A3CB77638885465D76DC9EA8 /* Sources */,
+				6ED92BAF1A22B7880DC1FA91 /* Tests */,
+				26A55398148C1FFA28F253C8 /* UITests */,
+				45ED7D05A22C2DC5EB24D07C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		45ED7D05A22C2DC5EB24D07C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				02A11D7C1DA889F76FBD37B2 /* Nexo.app */,
+				A635B3F334DBE25823197EFC /* NexoTests.xctest */,
+				087B63FD0936C4D9C6FB24A5 /* NexoUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		6ED92BAF1A22B7880DC1FA91 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				C682E87BAD7ABA98F6549D4F /* IOSPersistenceTests.swift */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		88B44E8CFBE8FD0FB6077073 /* NexoKitTests */ = {
+			isa = PBXGroup;
+			children = (
+				CE417B27714711C5128EE0A3 /* DriveSyncTests.swift */,
+				351089871A51C0584DD227A4 /* EventCreationTests.swift */,
+				CEB7556CE64A9B9D6299A026 /* GoogleAuthorizationTests.swift */,
+				7DA7F69FEE5ADD74878D086D /* NexoLocaleTests.swift */,
+				01831167A57EFB8D0D1F7E96 /* SpaceLifecycleTests.swift */,
+				188F4708ADF388933BAF1346 /* WorkspaceStoreTests.swift */,
+				09B9CF1CF521CDEE9A604295 /* WorkspaceTransferTests.swift */,
+			);
+			name = NexoKitTests;
+			path = ../Native/Tests/NexoKitTests;
+			sourceTree = "<group>";
+		};
+		A3CB77638885465D76DC9EA8 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				97192699A4B0F8F3BD748901 /* AppDelegate.swift */,
+				AF111A299DC2580D0B9EA38B /* IOSDraftStore.swift */,
+				9104BAA959E468DD15B3E150 /* IOSGoogleAuthorization.swift */,
+				2CB9DACEABCA013DF05EFC02 /* NexoViewController.swift */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		A67D2A77571AA6C4FEB52029 /* NexoCoreTests */ = {
+			isa = PBXGroup;
+			children = (
+				06FE24F21AC9A92654AE0A55 /* AttendancePDFTests.swift */,
+				8A845F8BDAA77E1B35446BC6 /* EventFocusTests.swift */,
+				98629F0B47A81B91E1EC9B28 /* LegacyImporterTests.swift */,
+				13B3789673C508A0523980B1 /* RemoteWorkspaceClientTests.swift */,
+				E1A7EF1D15C6CA9596F70B2C /* SnapshotStoreTests.swift */,
+				FBD7F9C4EA2E8FF28992D571 /* SyncCoordinatorTests.swift */,
+				C4FC2A2F786651096E328D41 /* SyncPlanningTests.swift */,
+				B3F5EEE4B71DC8C3C5987259 /* WorkspaceRulesTests.swift */,
+			);
+			name = NexoCoreTests;
+			path = ../Core/Tests/NexoCoreTests;
+			sourceTree = "<group>";
+		};
+		CCAE32ECDD1B640FB19DB2EE /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				F19DB9610E1C39564BBFDEE3 /* Core */,
+				F09CA7175AC4D3AC22C5890D /* Native */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		FE341BE9B2A0D1F2493D4EDE /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				2F5B1F876F9389E983D2E2D6 /* Assets.xcassets */,
+				24601F4C64AA342433D04609 /* PrivacyInfo.xcprivacy */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8BF1D233B50EE5A77B4CDC86 /* NexoUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FB7C0FF412F7A07DD8E14D41 /* Build configuration list for PBXNativeTarget "NexoUITests" */;
+			buildPhases = (
+				050716CE1AEAFCF62CF94A95 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				26C89D436F46B0EFAEDF8C1D /* PBXTargetDependency */,
+			);
+			name = NexoUITests;
+			packageProductDependencies = (
+			);
+			productName = NexoUITests;
+			productReference = 087B63FD0936C4D9C6FB24A5 /* NexoUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		AEE1D3087618D4D124ECB242 /* NexoTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2A2895A285FAB8FED0D5D852 /* Build configuration list for PBXNativeTarget "NexoTests" */;
+			buildPhases = (
+				E9070F847B43822D81575197 /* Sources */,
+				8658E1E22A9CBFF42BD96D7B /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6030572E9443A1617014FA75 /* PBXTargetDependency */,
+			);
+			name = NexoTests;
+			packageProductDependencies = (
+				E196253590472EE9126BB116 /* NexoCore */,
+				2DA3BBF888CD2E430C82CF9E /* NexoKit */,
+			);
+			productName = NexoTests;
+			productReference = A635B3F334DBE25823197EFC /* NexoTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		C4E0954F8678B2D21B30FB62 /* NexoIOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7B99FE6636027525B3F52CBD /* Build configuration list for PBXNativeTarget "NexoIOS" */;
+			buildPhases = (
+				331B68EF676B32B7E2DCE04C /* Sources */,
+				BF937BC9C5F58409BCBB92C2 /* Resources */,
+				A842B8497633BC4645049FE0 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = NexoIOS;
+			packageProductDependencies = (
+				FC9872BF2B26735E50CD987B /* NexoCore */,
+				DA9FCE68AB07FB1DB34D34D1 /* NexoKit */,
+				C23EC81A8BBCD93F8245F9DB /* GoogleSignIn */,
+			);
+			productName = Nexo;
+			productReference = 02A11D7C1DA889F76FBD37B2 /* Nexo.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		12D98C7F111EAF28A21AB02F /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					8BF1D233B50EE5A77B4CDC86 = {
+						ProvisioningStyle = Automatic;
+						TestTargetID = C4E0954F8678B2D21B30FB62;
+					};
+					AEE1D3087618D4D124ECB242 = {
+						ProvisioningStyle = Automatic;
+					};
+					C4E0954F8678B2D21B30FB62 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 01FE3FAFB05481E9E9443EAA /* Build configuration list for PBXProject "Nexo" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 41C015ADE8992DAF36FFBF14;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D57FBF93041A417F13143493 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				ECEC776BF186A6A8C7935875 /* XCLocalSwiftPackageReference "../Core" */,
+				40699CAAACE1EFD1DA11E6C0 /* XCLocalSwiftPackageReference "../Native" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 45ED7D05A22C2DC5EB24D07C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C4E0954F8678B2D21B30FB62 /* NexoIOS */,
+				AEE1D3087618D4D124ECB242 /* NexoTests */,
+				8BF1D233B50EE5A77B4CDC86 /* NexoUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		BF937BC9C5F58409BCBB92C2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7AAB6C992ADE0F4E55CD2749 /* Assets.xcassets in Resources */,
+				3E9A284311FA4432FCBFF635 /* PrivacyInfo.xcprivacy in Resources */,
+				B3F8AC8442C6FCB152BEC74F /* Web in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		050716CE1AEAFCF62CF94A95 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E955725958B6E680D9E57CB3 /* InteractionTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		331B68EF676B32B7E2DCE04C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1E1A14CF5F8664D355E68356 /* AppDelegate.swift in Sources */,
+				03BC4AFD4907ED3CD10D1898 /* IOSDraftStore.swift in Sources */,
+				F43C9AFD0E5E4F182BF4855B /* IOSGoogleAuthorization.swift in Sources */,
+				35F87D8D438D079375A6E49F /* NexoViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E9070F847B43822D81575197 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9A002FA942830449650DF0D7 /* AttendancePDFTests.swift in Sources */,
+				9665F883B492DC20AB03D12C /* DriveSyncTests.swift in Sources */,
+				177751412D3101930BEE4123 /* EventCreationTests.swift in Sources */,
+				2D8F38AC818A23C587A81245 /* EventFocusTests.swift in Sources */,
+				492E5E863B739E600781CEB2 /* GoogleAuthorizationTests.swift in Sources */,
+				60B89186F5056014D3B995FD /* IOSPersistenceTests.swift in Sources */,
+				87BE8793F852AAAFC72059CF /* LegacyImporterTests.swift in Sources */,
+				C397D8E85539DF7B1FC9758B /* NexoLocaleTests.swift in Sources */,
+				2B54B771EB5E6D0F5139B4C8 /* RemoteWorkspaceClientTests.swift in Sources */,
+				5D46226488444EE1C295AF0A /* SnapshotStoreTests.swift in Sources */,
+				ECE2AA16740049B965E65536 /* SpaceLifecycleTests.swift in Sources */,
+				CAFA5F338D29F21AC29C58AA /* SyncCoordinatorTests.swift in Sources */,
+				3AACC7E0DAB4DE1AFC844E3E /* SyncPlanningTests.swift in Sources */,
+				31BC7BE7BDD0DEB8CD68C16E /* WorkspaceRulesTests.swift in Sources */,
+				1BD5F13DA13B07122228E71E /* WorkspaceStoreTests.swift in Sources */,
+				D15E1F611851A8E963142D88 /* WorkspaceTransferTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		26C89D436F46B0EFAEDF8C1D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C4E0954F8678B2D21B30FB62 /* NexoIOS */;
+			targetProxy = 2AC276A7647F23C86E49EE00 /* PBXContainerItemProxy */;
+		};
+		6030572E9443A1617014FA75 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C4E0954F8678B2D21B30FB62 /* NexoIOS */;
+			targetProxy = 476AF61B4F21107F7BD5D602 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		16B5E52C575FB52ED3BEB599 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.nexo.ios.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = NexoIOS;
+			};
+			name = Release;
+		};
+		2B8983B6EED7A0A8AC05D759 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 12;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 0.4.1;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		420CB8CC1CD44E7D48495C93 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 12;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 0.4.1;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		46C865AF70DA67780FECC0B2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.nexo.ios.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nexo.app/Nexo";
+			};
+			name = Debug;
+		};
+		5774A9E7B760191BC71F654A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.nexo.ios.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nexo.app/Nexo";
+			};
+			name = Release;
+		};
+		ADBCD4C29D1240A49189044D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.nexo.ios;
+				PRODUCT_MODULE_NAME = Nexo;
+				PRODUCT_NAME = Nexo;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		CA68958D1899AB3332839B2F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.nexo.ios.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = NexoIOS;
+			};
+			name = Debug;
+		};
+		D7E8BDA75A74BC2227B7D6A4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.nexo.ios;
+				PRODUCT_MODULE_NAME = Nexo;
+				PRODUCT_NAME = Nexo;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		01FE3FAFB05481E9E9443EAA /* Build configuration list for PBXProject "Nexo" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2B8983B6EED7A0A8AC05D759 /* Debug */,
+				420CB8CC1CD44E7D48495C93 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		2A2895A285FAB8FED0D5D852 /* Build configuration list for PBXNativeTarget "NexoTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				46C865AF70DA67780FECC0B2 /* Debug */,
+				5774A9E7B760191BC71F654A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7B99FE6636027525B3F52CBD /* Build configuration list for PBXNativeTarget "NexoIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ADBCD4C29D1240A49189044D /* Debug */,
+				D7E8BDA75A74BC2227B7D6A4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FB7C0FF412F7A07DD8E14D41 /* Build configuration list for PBXNativeTarget "NexoUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CA68958D1899AB3332839B2F /* Debug */,
+				16B5E52C575FB52ED3BEB599 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		40699CAAACE1EFD1DA11E6C0 /* XCLocalSwiftPackageReference "../Native" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../Native;
+		};
+		ECEC776BF186A6A8C7935875 /* XCLocalSwiftPackageReference "../Core" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../Core;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		D57FBF93041A417F13143493 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS.git";
+			requirement = {
+				kind = exactVersion;
+				version = 9.2.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		2DA3BBF888CD2E430C82CF9E /* NexoKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = NexoKit;
+		};
+		C23EC81A8BBCD93F8245F9DB /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D57FBF93041A417F13143493 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		DA9FCE68AB07FB1DB34D34D1 /* NexoKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = NexoKit;
+		};
+		E196253590472EE9126BB116 /* NexoCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = NexoCore;
+		};
+		FC9872BF2B26735E50CD987B /* NexoCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = NexoCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 12D98C7F111EAF28A21AB02F /* Project object */;
+}
