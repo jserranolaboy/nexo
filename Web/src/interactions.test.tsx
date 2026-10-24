@@ -2409,3 +2409,185 @@ describe('Drive interface localization', () => {
     expect(find(tree, el => el.type === 'p' && el.props.children === 'Synthetic template').props.children).toBe('Synthetic template')
   })
 })
+
+function versionPreview() {
+  const space = {
+    organizationID: 'org', folderID: 'synthetic-folder', pending: 0, canEdit: true, error: '',
+    conflicts: [{ key: 'template:synthetic', versions: [{ id: 'synthetic-version', device: 'Synthetic Mac', date: '2026-10-24T12:00:00Z', summary: 'Synthetic template' }] }],
+  }
+  const notify = vi.fn()
+  const runDrive = vi.fn(async () => { space.conflicts = [] })
+  test.context = { drive: { ...emptyDrive, configured: true, connected: true, spaces: [space] }, driveBusy: false, notify, runDrive }
+  const requests: { command: string; resolve: (value: unknown) => void; reject: (error: Error) => void }[] = []
+  test.bridge.mockImplementation(({ command }) => new Promise((resolve, reject) => requests.push({ command, resolve, reject })))
+  const panelHooks = new test.Hooks(), previewHooks = new test.Hooks()
+  const panel = () => panelHooks.render(() => DrivePanel({ orgID: 'org' }))
+  const preview = component(panel(), 'VersionPreview')
+  const render = () => previewHooks.render(() => invoke(preview))
+  return { notify, runDrive, requests, render, panel,
+    start: () => find(render(), el => el.type === 'button'),
+    next: () => find(render(), el => el.props['aria-label'] === tr('Página siguiente')),
+    resolve: (i: number, value: unknown) => requests[i].resolve(value),
+    reject: (i: number) => requests[i].reject(new Error('Synthetic old preview failure')),
+    resolveConflict: async () => {
+      find(panel(), el => el.type === 'button' && Array.isArray(el.props.children) && el.props.children.includes(tr('Usar esta versión'))).props.onClick()
+      await flush()
+      expect(() => component(panel(), 'VersionPreview')).toThrow()
+      previewHooks.dispose()
+    },
+  }
+}
+
+describe('Drive conflict preview lifecycle', () => {
+  it.each(['resolve', 'reject'] as const)('does not let a duplicate initial preview %s rewind or erase a later page', async (outcome) => {
+    const r = versionPreview(), button = r.start()
+    button.props.onClick()
+    button.props.onClick()
+    r.resolve(0, { token: 'first-token', pageCount: 3, image: 'page-1' })
+    await flush()
+    r.next().props.onClick()
+    const pageRequest = r.requests.length - 1
+    r.resolve(pageRequest, { image: 'page-2' })
+    await flush()
+    // A synchronous guard may avoid request 1 entirely; otherwise it must not
+    // replace the newer successful page or report an obsolete request error.
+    if (r.requests[1].command === 'drivePreviewTemplate') {
+      if (outcome === 'resolve') r.resolve(1, { token: 'late-token', pageCount: 3, image: 'page-1' })
+      else r.reject(1)
+      await flush()
+    }
+    expect(find(r.render(), el => el.type === 'img').props).toMatchObject({ src: 'page-2', alt: tr('Plantilla, página {0}', 2) })
+    expect(r.notify).not.toHaveBeenCalled()
+  })
+  it('does not notify an obsolete preview error after the user resolves the conflict', async () => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    await r.resolveConflict()
+    expect(r.runDrive).toHaveBeenCalledWith('driveResolve', { organizationID: 'org', key: 'template:synthetic', versionID: 'synthetic-version' })
+    r.reject(0)
+    await flush()
+    expect(r.notify).not.toHaveBeenCalled()
+  })
+  it('does not notify an old page error after the conflict preview is removed', async () => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    r.resolve(0, { token: 'token', pageCount: 3, image: 'page-1' })
+    await flush()
+    r.next().props.onClick()
+    await r.resolveConflict()
+    r.reject(1)
+    await flush()
+    expect(r.notify).not.toHaveBeenCalled()
+  })
+  it('does not notify from a retained preview after its Settings sheet starts exiting', async () => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    test.present = false
+    r.render()
+    r.reject(0)
+    await flush()
+    expect(r.notify).not.toHaveBeenCalled()
+  })
+  it('reports a current failure and permits a retry', async () => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    r.reject(0)
+    await flush()
+    expect(r.notify).toHaveBeenCalledExactlyOnceWith('Synthetic old preview failure', true)
+    expect(r.start().props.disabled).toBe(false)
+    r.start().props.onClick()
+    r.resolve(1, { token: 'retry-token', pageCount: 1, image: 'retry-image' })
+    await flush()
+    expect(find(r.render(), el => el.type === 'img').props.src).toBe('retry-image')
+  })
+  it('renders normal page image and number together', async () => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    r.resolve(0, { token: 'token', pageCount: 3, image: 'page-1' })
+    await flush()
+    r.next().props.onClick()
+    r.resolve(1, { image: 'page-2' })
+    await flush()
+    expect(find(r.render(), el => el.type === 'img').props).toMatchObject({ src: 'page-2', alt: tr('Plantilla, página {0}', 2) })
+  })
+})
+
+describe('Drive preview request isolation', () => {
+  it('shares a synchronous lock across repeated page callbacks', async () => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    r.resolve(0, { token: 'token', pageCount: 3, image: 'page-1' })
+    await flush()
+    const next = r.next()
+    next.props.onClick()
+    next.props.onClick()
+    expect(r.requests).toHaveLength(2)
+    r.resolve(1, { image: 'page-2' })
+    await flush()
+    expect(find(r.render(), el => el.type === 'img').props).toMatchObject({ src: 'page-2', alt: tr('Plantilla, página {0}', 2) })
+  })
+  it.each(['resolve', 'reject'] as const)('does not revive an old preview or unlock a new one after exit reversal and old %s', async (outcome) => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    test.present = false
+    r.render()
+    test.present = true
+    expect(r.start().props.disabled).toBe(false)
+    r.start().props.onClick()
+    expect(r.requests).toHaveLength(2)
+    if (outcome === 'resolve') r.resolve(0, { token: 'old-token', pageCount: 3, image: 'old-image' })
+    else r.reject(0)
+    await flush()
+    expect(r.start().props.disabled).toBe(true)
+    expect(r.notify).not.toHaveBeenCalled()
+    r.resolve(1, { token: 'new-token', pageCount: 1, image: 'new-image' })
+    await flush()
+    expect(find(r.render(), el => el.type === 'img').props.src).toBe('new-image')
+  })
+  it('ignores retained preview callbacks after the conflict is removed', async () => {
+    const r = versionPreview(), start = r.start()
+    await r.resolveConflict()
+    start.props.onClick()
+    expect(test.bridge).not.toHaveBeenCalled()
+  })
+  it('keeps disabled pagination boundaries from requesting nonexistent pages', async () => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    r.resolve(0, { token: 'token', pageCount: 2, image: 'page-1' })
+    await flush()
+    const previous = find(r.render(), el => el.props['aria-label'] === tr('Página anterior'))
+    expect(previous.props.disabled).toBe(true)
+    previous.props.onClick()
+    expect(r.requests).toHaveLength(1)
+    r.next().props.onClick()
+    r.resolve(1, { image: 'page-2' })
+    await flush()
+    const next = r.next()
+    expect(next.props.disabled).toBe(true)
+    next.props.onClick()
+    expect(r.requests).toHaveLength(2)
+  })
+})
+
+describe('Drive conflict opposite page callbacks', () => {
+  it('does not let an older page response replace a newer accepted destination', async () => {
+    const r = versionPreview()
+    r.start().props.onClick()
+    r.resolve(0, { token: 'token', pageCount: 3, image: 'page-1' })
+    await flush()
+    r.next().props.onClick()
+    r.resolve(1, { image: 'page-2' })
+    await flush()
+    const middle = r.render()
+    find(middle, el => el.props['aria-label'] === tr('Página anterior')).props.onClick()
+    find(middle, el => el.props['aria-label'] === tr('Página siguiente')).props.onClick()
+    const acceptedBoth = r.requests.length === 4
+    if (acceptedBoth) { r.resolve(3, { image: 'page-3' }); await flush() }
+    r.resolve(2, { image: 'page-1' })
+    await flush()
+    expect(find(r.render(), el => el.type === 'img').props).toMatchObject({
+      src: acceptedBoth ? 'page-3' : 'page-1',
+      alt: tr('Plantilla, página {0}', acceptedBoth ? 3 : 1),
+    })
+  })
+})

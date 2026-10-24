@@ -1,5 +1,6 @@
 import { t as tr, locale } from './i18n'
-import { useState } from 'react'
+import { useLayoutEffect, useMemo, useState } from 'react'
+import { useIsPresent } from 'motion/react'
 import {
   ArrowUpRight,
   Cloud,
@@ -360,27 +361,42 @@ function VersionPreview({
   } | null>(null)
   const [page, setPage] = useState(0),
     [busy, setBusy] = useState(false)
+  const present = useIsPresent()
+  const session = useMemo(() => ({ active: present, pending: false }), [orgID, recordKey, versionID, present])
+  useLayoutEffect(() => {
+    session.active = present
+    if (present) {
+      setPreview(null)
+      setPage(0)
+      setBusy(false)
+    }
+    return () => { session.active = false }
+  }, [session])
   const show = async (index = 0) => {
+    if (!session.active || session.pending) return
+    if (preview && (!Number.isInteger(index) || index < 0 || index >= preview.pageCount)) return
+    session.pending = true
     setBusy(true)
     try {
-      if (!preview)
-        setPreview(
-          await native('drivePreviewTemplate', {
-            organizationID: orgID,
-            key: recordKey,
-            versionID,
-          }),
-        )
-      else {
-        const result = await native<{ image: string }>('pdfPage', { token: preview.token, index })
-        setPreview({ ...preview, image: result.image })
+      const result = preview
+        ? { ...preview, image: (await native<{ image: string }>('pdfPage', { token: preview.token, index })).image }
+        : await native<{ token: string; pageCount: number; image: string }>('drivePreviewTemplate', {
+          organizationID: orgID,
+          key: recordKey,
+          versionID,
+        })
+      if (session.active) {
+        setPreview(result)
+        setPage(index)
       }
-      setPage(index)
     } catch (e) {
-      setPreview(null)
-      notify(e instanceof Error ? e.message : String(e), true)
+      if (session.active) {
+        setPreview(null)
+        notify(e instanceof Error ? e.message : String(e), true)
+      }
     } finally {
-      setBusy(false)
+      session.pending = false
+      if (session.active) setBusy(false)
     }
   }
   return (
