@@ -1,0 +1,25 @@
+name: Fallo
+description: Un resultado distinto del esperado, con datos sintéticos.
+title: "fallo: "
+labels: []
+body:
+  - type: textarea
+    attributes:
+      label: Qué ocurre
+      description: Describe el resultado visible. No pegues espacios, listas ni documentos reales.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Qué se esperaba
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Dónde
+      options:
+        - Cliente actual
+        - Reconstrucción
+        - No lo sé
+    validations:
+      required: true

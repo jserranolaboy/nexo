@@ -28,3 +28,19 @@ Do not include real people, attendance records, institutional templates, credent
 Describe the problem, the visible outcome, and the checks actually performed. Screenshots must use synthetic data and pass content and metadata review. See the [publication scope](docs/PUBLICATION_REVIEW.md).
 
 Use the current root `Makefile` or documented commands. The alpha implementations are excluded. Repository renames, visibility changes, and release publication require their own explicit scope.
+
+## Reconstrucción
+
+Las secciones anteriores describen el cliente actual (`Core`, `Native`, `Web`, `iOS`). No cambian.
+
+La línea nueva está en `reconstruction/`. Ahí la autoridad es `reconstruction/AGENTS.md`. Un comportamiento nuevo no se vuelve a implementar en `NexoCore` ni en `Web/src/domain.ts`. El árbol legado no se borra desde esa línea.
+
+En Linux, desde `reconstruction/`:
+
+```sh
+npm ci
+npm test
+npm run typecheck
+```
+
+Esa CI no compila la app de Apple. Esas compilaciones siguen en un Mac, con los comandos ya documentados. No se usan espacios reales, cuentas ni el formato del alfa VRR.
