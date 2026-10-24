@@ -102,6 +102,7 @@ const test = vi.hoisted(() => {
   vi.stubGlobal('Element', class {})
   return {
     Hooks,
+    present: true,
     state,
     ref,
     memo,
@@ -136,6 +137,7 @@ vi.mock('motion/react', () => ({
   motion: new Proxy({}, { get: (_target, name) => String(name) }),
   useMotionValue: () => ({ set: vi.fn() }),
   useReducedMotion: () => false,
+  useIsPresent: () => test.present,
   useTransform: () => 0,
   animate: vi.fn(),
 }))
@@ -203,6 +205,7 @@ const fixture = () => {
 beforeEach(() => {
   vi.useFakeTimers()
   test.bridge.mockReset()
+  test.present = true
   delete window.nexoDevice
   window.innerWidth = 1200
 })
@@ -230,14 +233,26 @@ function record(mutate = vi.fn().mockResolvedValue(fixture())) {
     rollHooks.render(() => invoke(roll)),
     'RecordSheet',
   )
-  const recordElement = { ...original, props: { ...original.props, close } }
+  const recordElement: Element = { ...original, props: { ...original.props, close } }
   const render = () => recordHooks.render(() => invoke(recordElement))
   let tree = render()
   find(tree, (element) => element.type === 'textarea').props.onChange({
     target: { value: 'Avisó' },
   })
   tree = render()
-  return { tree, render, mutate, close, openMember }
+  return { tree, render, mutate, close, openMember,
+    dispose: () => { recordHooks.dispose(); rollHooks.dispose(); eventHooks.dispose() },
+    changeContext: (changeEvent = false) => {
+      const event = changeEvent ? { ...s.events[0], id: 'next-event' } : s.events[0]
+      const row = { ...s.attendance[0], id: 'next-row', eventID: event.id, memberID: 'next-member', note: 'Existing next note' }
+      s.members.push({ id: 'next-member', organizationID: 'org', name: 'Bea', isActive: true })
+      if (changeEvent) s.events.push(event)
+      s.attendance.push(row)
+      recordElement.props.event = event
+      recordElement.props.row = row
+      return render()
+    },
+  }
 }
 
 describe('Attendance note dismissal', () => {
@@ -2117,3 +2132,231 @@ describe("Phone sheet refused dismissal", () => {
     },
   );
 });
+
+function pendingRecord() {
+  const requests: { resolve: (s: unknown) => void; reject: (error: Error) => void }[] = []
+  const mutate = vi.fn(() => new Promise((resolve, reject) => requests.push({ resolve, reject })))
+  const r = record(mutate)
+  return { ...r,
+    resolve: (i = 0) => requests[i].resolve(fixture()),
+    reject: (i = 0) => requests[i].reject(new Error('Old note request failed')),
+    history: (tree = r.render()) => find(tree, el => el.props.className === 'nx-group-row link').props.onClick(),
+    exclude: (tree = r.render()) => find(tree, el => el.props.className === 'nx-group-row link danger').props.onClick(),
+  }
+}
+
+describe('Attendance note session lifetime', () => {
+  it.each(['row', 'event', 'unmount'] as const)('does not run old History navigation after %s changes', async (mode) => {
+    const r = pendingRecord()
+    r.history()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    if (mode === 'unmount') r.dispose()
+    else r.changeContext(mode === 'event')
+    r.resolve()
+    await flush()
+    expect(r.openMember).not.toHaveBeenCalled()
+    expect(r.close).not.toHaveBeenCalled()
+  })
+  it.each([false, true])('does not show a previous note failure in the new record (new event=%s)', async (event) => {
+    const r = pendingRecord()
+    r.render().props.onClose()
+    r.changeContext(event)
+    r.reject()
+    await flush()
+    expect(find(r.render(), el => el.type === 'textarea').props.value).toBe('Existing next note')
+    expect(() => find(r.render(), el => el.props.role === 'alert')).toThrow()
+  })
+  it('keeps the new record baseline when an older save resolves', async () => {
+    const r = pendingRecord()
+    r.render().props.onClose()
+    r.changeContext()
+    r.resolve()
+    await flush()
+    find(r.render(), el => el.type === 'textarea').props.onChange({ target: { value: 'Edited next note' } })
+    r.render().props.onClose()
+    expect(r.mutate.mock.calls[1][0]).toMatchObject({ memberID: 'next-member', note: 'Edited next note', expectedNote: 'Existing next note' })
+    r.resolve(1)
+    await flush()
+  })
+  it.each(['resolve', 'reject'] as const)('starts the new record request independently and does not unlock it when old request %ss', async (outcome) => {
+    const r = pendingRecord()
+    r.history()
+    const changed = r.changeContext()
+    expect(find(changed, el => el.type === 'textarea').props.disabled).toBe(false)
+    find(changed, el => el.type === 'textarea').props.onChange({ target: { value: 'Edited next note' } })
+    r.render().props.onClose()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    r[outcome]()
+    await flush()
+    expect(find(r.render(), el => el.type === 'textarea').props.disabled).toBe(true)
+    expect(r.close).not.toHaveBeenCalled()
+    expect(r.openMember).not.toHaveBeenCalled()
+    expect(() => find(r.render(), el => el.props.role === 'alert')).toThrow()
+    r.resolve(1)
+    await flush()
+    expect(r.close).toHaveBeenCalledOnce()
+  })
+  it.each(['resolve', 'reject'] as const)('restores phone y while dirty-note dismissal is deferred, including %s', async (outcome) => {
+    window.innerWidth = 400
+    const r = pendingRecord(), hooks = new test.Hooks()
+    const tree = hooks.render(() => Sheet(r.render().props as Parameters<typeof Sheet>[0]))
+    const panel = find(tree, el => el.props.role === 'dialog')
+    const grabber = find(tree, el => el.props.className === 'nx-grabber')
+    vi.mocked(animate).mockClear()
+    grabber.props.onPan(null, { offset: { y: 600 } })
+    grabber.props.onPanEnd(null, { offset: { y: 600 }, velocity: { y: 0 } })
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.close).not.toHaveBeenCalled()
+    expect(animate).toHaveBeenCalledWith(panel.props.style.y, 0, expect.anything())
+    r[outcome]()
+    await flush()
+    if (outcome === 'resolve') expect(r.close).toHaveBeenCalledOnce()
+    else {
+      expect(r.close).not.toHaveBeenCalled()
+      expect(find(r.render(), el => el.type === 'textarea').props.value).toBe('Avisó')
+    }
+  })
+  it('does not close the new record after already-requested note-plus-exclusion finishes', async () => {
+    const r = pendingRecord()
+    r.exclude()
+    r.changeContext()
+    r.resolve()
+    await flush()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    expect(r.mutate.mock.calls[1][0]).toMatchObject({ kind: 'inclusion', eventID: 'event', memberID: 'member', included: false })
+    r.resolve(1)
+    await flush()
+    expect(r.close).not.toHaveBeenCalled()
+  })
+  it('preserves an explicitly requested compound exclusion after unmount', async () => {
+    const r = pendingRecord()
+    r.exclude()
+    r.dispose()
+    r.resolve()
+    await flush()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    expect(r.mutate.mock.calls[1][0]).toMatchObject({ kind: 'inclusion', memberID: 'member' })
+    r.resolve(1)
+    await flush()
+  })
+  it('saves and navigates normally within the original History session', async () => {
+    const r = pendingRecord()
+    r.history()
+    r.resolve()
+    await flush()
+    expect(r.openMember).toHaveBeenCalledWith('member')
+    expect(r.close).toHaveBeenCalledOnce()
+  })
+})
+
+
+describe('Attendance note synchronous controls', () => {
+  it('does not accept edits or discard a submitted note before rerender', async () => {
+    const r = pendingRecord(), tree = r.render()
+    expect(tree.props.onClose()).toBe(false)
+    find(tree, el => el.type === 'textarea').props.onChange({ target: { value: 'Not submitted' } })
+    find(tree, el => el.props.className === 'nx-button').props.onClick()
+    expect(r.close).not.toHaveBeenCalled()
+    r.reject()
+    await flush()
+    expect(find(r.render(), el => el.type === 'textarea').props.value).toBe('Avisó')
+  })
+  it('invalidates retained actions after an explicit discard', async () => {
+    const r = pendingRecord(), tree = r.render()
+    find(tree, el => el.props.className === 'nx-button').props.onClick()
+    tree.props.onClose()
+    r.history(tree)
+    r.exclude(tree)
+    find(tree, el => el.props.className === 'nx-record-mark absent').props.onClick()
+    expect(r.close).toHaveBeenCalledOnce()
+    expect(r.mutate).not.toHaveBeenCalled()
+    expect(r.openMember).not.toHaveBeenCalled()
+  })
+  it('ignores old controls after switching rows', () => {
+    const r = pendingRecord(), tree = r.render()
+    r.changeContext()
+    tree.props.onClose()
+    r.history(tree)
+    r.exclude(tree)
+    find(tree, el => el.type === 'textarea').props.onChange({ target: { value: 'Old row edit' } })
+    expect(r.close).not.toHaveBeenCalled()
+    expect(r.mutate).not.toHaveBeenCalled()
+    expect(find(r.render(), el => el.type === 'textarea').props.value).toBe('Existing next note')
+  })
+  it('keeps clean phone dismissal synchronous without a competing reset', () => {
+    window.innerWidth = 400
+    const r = pendingRecord(), hooks = new test.Hooks()
+    find(r.render(), el => el.type === 'textarea').props.onChange({ target: { value: '' } })
+    const tree = hooks.render(() => Sheet(r.render().props as Parameters<typeof Sheet>[0]))
+    const grabber = find(tree, el => el.props.className === 'nx-grabber')
+    vi.mocked(animate).mockClear()
+    grabber.props.onPanEnd(null, { offset: { y: 600 }, velocity: { y: 0 } })
+    expect(r.close).toHaveBeenCalledOnce()
+    expect(r.mutate).not.toHaveBeenCalled()
+    expect(animate).not.toHaveBeenCalled()
+  })
+})
+
+describe('Attendance note retained event exit', () => {
+  it('does not navigate from an exiting event body before its animation unmounts', async () => {
+    const r = pendingRecord()
+    r.history()
+    // App's event-keyed AnimatePresence retains the old event body with old props,
+    // but its Motion presence context becomes false as the selection changes.
+    test.present = false
+    r.render()
+    r.resolve()
+    await flush()
+    expect(r.openMember).not.toHaveBeenCalled()
+    expect(r.close).not.toHaveBeenCalled()
+  })
+  it('preserves inclusion but skips stale UI close in the retained exit body', async () => {
+    const r = pendingRecord()
+    r.exclude()
+    test.present = false
+    r.render()
+    r.resolve()
+    await flush()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    r.resolve(1)
+    await flush()
+    expect(r.close).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('Attendance note retained exit errors and re-entry', () => {
+  it('does not set the exiting record error after an old note rejection', async () => {
+    const r = pendingRecord()
+    r.history()
+    test.present = false
+    r.render()
+    r.reject()
+    await flush()
+    expect(() => find(r.render(), el => el.props.role === 'alert')).toThrow()
+    expect(r.close).not.toHaveBeenCalled()
+    expect(r.openMember).not.toHaveBeenCalled()
+  })
+  it.each(['resolve', 'reject'] as const)('starts a distinct session after exit reversal and ignores old %s', async (outcome) => {
+    const r = pendingRecord()
+    r.history()
+    test.present = false
+    r.render()
+    test.present = true
+    const reopened = r.render()
+    expect(find(reopened, el => el.type === 'textarea').props.disabled).toBe(false)
+    find(reopened, el => el.type === 'textarea').props.onChange({ target: { value: 'New session note' } })
+    r.render().props.onClose()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    r[outcome]()
+    await flush()
+    expect(find(r.render(), el => el.type === 'textarea').props.disabled).toBe(true)
+    expect(r.close).not.toHaveBeenCalled()
+    expect(r.openMember).not.toHaveBeenCalled()
+    expect(() => find(r.render(), el => el.props.role === 'alert')).toThrow()
+    r.resolve(1)
+    await flush()
+    expect(r.close).toHaveBeenCalledOnce()
+    expect(r.openMember).not.toHaveBeenCalled()
+  })
+})

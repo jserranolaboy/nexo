@@ -1,6 +1,6 @@
 import { t as tr, locale } from './i18n'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { AnimatePresence, animate, motion, useMotionValue, useTransform } from 'motion/react'
+import { AnimatePresence, animate, motion, useIsPresent, useMotionValue, useTransform } from 'motion/react'
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -475,17 +475,30 @@ function RecordSheet({
     [base, setBase] = useState(''),
     [error, setError] = useState(''),
     [saving, setSaving] = useState(false)
-  const finishing = useRef(false)
-  useEffect(() => {
-    setNote(row?.note ?? '')
-    setBase(row?.note ?? '')
-    setError('')
-  }, [row?.id])
+  const present = useIsPresent()
+  const session = useMemo(() => ({ active: present, pending: false }), [event.organizationID, event.id, row?.id, present])
+  useLayoutEffect(() => {
+    session.active = present
+    if (present) {
+      setNote(row?.note ?? '')
+      setBase(row?.note ?? '')
+      setError('')
+      setSaving(false)
+    }
+    return () => { session.active = false }
+  }, [session])
   const dirty = note !== base
   const name = row ? attendanceName(s, row) : ''
-  const finish = async (after: () => void | Promise<void> = close) => {
-    if (finishing.current) return
-    finishing.current = true
+  const isCurrent = () => session.active && !!row
+  const closeCurrent = (navigate?: () => void) => {
+    if (!isCurrent()) return
+    session.active = false
+    close()
+    navigate?.()
+  }
+  const finish = async (after: () => void | Promise<void> = closeCurrent) => {
+    if (!isCurrent() || session.pending) return
+    session.pending = true
     setSaving(true)
     setError('')
     try {
@@ -494,18 +507,29 @@ function RecordSheet({
           { kind: 'attendance', eventID: event.id, memberID: row.memberID, status: row.status, note, expectedNote: base, noteOnly: true },
           tr('Nota guardada'),
         )
-        setBase(note)
+        if (isCurrent()) setBase(note)
       }
+      // An explicitly requested inclusion still follows the note save, even if
+      // its view disappeared. Only its UI continuation belongs to this session.
       await after()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      if (isCurrent()) setError(e instanceof Error ? e.message : String(e))
     } finally {
-      finishing.current = false
-      setSaving(false)
+      session.pending = false
+      if (isCurrent()) setSaving(false)
     }
   }
+  const dismiss = () => {
+    if (!isCurrent() || session.pending) return false
+    if (dirty) {
+      void finish()
+      return false
+    }
+    closeCurrent()
+    return true
+  }
   return (
-    <Sheet open={!!row} onClose={() => void finish()} title={name}>
+    <Sheet open={!!row} onClose={dismiss} title={name}>
       {row && (
         <div className="nx-record">
           {!row.isVoided ? (
@@ -516,9 +540,10 @@ function RecordSheet({
                   className={`nx-record-mark ${m.status}`}
                   aria-pressed={row.status === m.status}
                   disabled={event.isCancelled || saving}
-                  onClick={() =>
-                    void mutate({ kind: 'attendance', eventID: event.id, memberID: row.memberID, status: m.status, expectedStatus: row.status }).catch(() => {})
-                  }
+                  onClick={() => {
+                    if (isCurrent() && !session.pending && !event.isCancelled)
+                      void mutate({ kind: 'attendance', eventID: event.id, memberID: row.memberID, status: m.status, expectedStatus: row.status }).catch(() => {})
+                  }}
                 >
                   <span className="nx-record-icon">
                     <StatusIcon status={m.status} size={18} />
@@ -542,7 +567,9 @@ function RecordSheet({
                 maxLength={4000}
                 placeholder={tr('Motivo, aviso, comentario')}
                 disabled={event.isCancelled || saving}
-                onChange={(e) => setNote(e.target.value)}
+                onChange={(e) => {
+                  if (isCurrent() && !session.pending && !event.isCancelled) setNote(e.target.value)
+                }}
               />
             </label>
           )}
@@ -551,7 +578,7 @@ function RecordSheet({
             <button
               className="nx-group-row link"
               disabled={saving}
-              onClick={() => void finish(() => { close(); openMember(row.memberID) })}
+              onClick={() => void finish(() => closeCurrent(() => openMember(row.memberID)))}
             >
               <span>{tr('Historial de {0}', name)}</span>
               <ArrowUpRight size={16} />
@@ -565,7 +592,7 @@ function RecordSheet({
                     { kind: 'inclusion', eventID: event.id, memberID: row.memberID, included: row.isVoided },
                     row.isVoided ? tr('{0} vuelve a la lista', name) : tr('{0} fuera de la lista', name),
                   )
-                  close()
+                  closeCurrent()
                 })
               }
             >
@@ -575,7 +602,9 @@ function RecordSheet({
           </div>
           {dirty && (
             <div className="nx-form-footer">
-              <button className="nx-button" disabled={saving} onClick={() => (setNote(base), close())}>
+              <button className="nx-button" disabled={saving} onClick={() => {
+                if (isCurrent() && !session.pending) { setNote(base); closeCurrent() }
+              }}>
                 {tr('Descartar')}
               </button>
               <button className="nx-button primary" disabled={saving} onClick={() => void finish()}>
