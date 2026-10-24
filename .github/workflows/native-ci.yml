@@ -1,0 +1,60 @@
+name: Native CI
+
+'on':
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [refactor/nexo-identity-and-reliability]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS package tests and universal build
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      NEXO_LIVE_DRIVE_TEST: '0'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Report macOS and Swift toolchain
+        run: |
+          test -d "$DEVELOPER_DIR"
+          sw_vers
+          uname -m
+          xcodebuild -version
+          xcrun swift --version
+          test "$NEXO_LIVE_DRIVE_TEST" = 0
+
+      - name: Test Core with synthetic fixtures
+        run: xcrun swift test --package-path Core --scratch-path "$RUNNER_TEMP/nexo-core-tests" -j 2
+
+      - name: Run Core executable checks
+        run: xcrun swift run --package-path Core --scratch-path "$RUNNER_TEMP/nexo-core-tests" -j 2 NexoCoreChecks
+
+      - name: Test native package without live Drive
+        run: xcrun swift test --package-path Native --scratch-path "$RUNNER_TEMP/nexo-native-tests" -j 2 --skip LiveDriveTests
+
+      # Compile only: no app packaging, signing credentials, installation, or publication.
+      - name: Build release executable for both Mac architectures
+        run: xcrun swift build --package-path Native --scratch-path "$RUNNER_TEMP/nexo-native-release" -c release --arch arm64 --arch x86_64 -j 2
+
+      - name: Verify universal executable architectures
+        run: |
+          bin_dir=$(xcrun swift build --package-path Native --scratch-path "$RUNNER_TEMP/nexo-native-release" -c release --arch arm64 --arch x86_64 --show-bin-path)
+          xcrun lipo -archs "$bin_dir/Nexo"
+          xcrun lipo "$bin_dir/Nexo" -verify_arch arm64 x86_64
