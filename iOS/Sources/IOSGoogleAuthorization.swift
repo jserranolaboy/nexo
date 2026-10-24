@@ -1,5 +1,7 @@
 import UIKit
-import GoogleSignIn
+// GoogleSignIn 9.2's Objective-C async imports lack concurrency annotations.
+// SDK completions run on the main queue; keep SDK objects confined to this MainActor adapter.
+@preconcurrency import GoogleSignIn
 import NexoKit
 
 @MainActor
