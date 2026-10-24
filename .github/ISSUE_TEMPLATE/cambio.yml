@@ -1,0 +1,19 @@
+name: Cambio
+description: Una mejora acotada al cliente actual o a la reconstrucción.
+title: "cambio: "
+labels: []
+body:
+  - type: textarea
+    attributes:
+      label: Resultado buscado
+      description: Sin cuentas obligatorias, backend ni datos reales.
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Línea
+      options:
+        - Cliente actual
+        - Reconstrucción
+    validations:
+      required: true
