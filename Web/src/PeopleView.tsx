@@ -1,5 +1,6 @@
 import { t as tr, locale } from './i18n'
-import { useMemo, useState } from 'react'
+import { useLayoutEffect, useMemo, useState } from 'react'
+import { useIsPresent } from 'motion/react'
 import { ArrowLeft, Archive, ArrowUpRight, Check, Search } from 'lucide-react'
 import type { Activity, ID, Member, Period, Snapshot, Status } from './domain'
 import { attendanceIndex, attendanceResult, currentGroups, emptyAttendanceResult, inPeriod, statusLabels } from './domain'
@@ -255,8 +256,17 @@ export function PersonPanel({
   openEvent: (id: ID) => void
   back?: () => void
 }) {
-  const { mutate } = useWorkspace()
+  const { mutate, busy, driveBusy } = useWorkspace()
   const orgID = member.organizationID
+  const [savingGroups, setSavingGroups] = useState(false)
+  const present = useIsPresent()
+  const groupSession = useMemo(() => ({ active: present, pending: false }), [orgID, member.id, present])
+  useLayoutEffect(() => {
+    groupSession.active = present
+    if (present) setSavingGroups(false)
+    return () => { groupSession.active = false }
+  }, [groupSession])
+  const groupsBusy = savingGroups || !!busy || !!driveBusy
   const groups = s.groups.filter((g) => g.organizationID === orgID)
   const mine = currentGroups(s, member.id).map((g) => g.id)
   const result = attendanceResult(s, member.id, period)
@@ -268,10 +278,20 @@ export function PersonPanel({
     .slice()
     .sort((a, b) => (b.eventDateSnapshot || '').localeCompare(a.eventDateSnapshot || ''))
   const eventOf = (eventID: ID) => s.events.find((e) => e.id === eventID) as Activity
-  const toggleGroup = (groupID: ID) => {
+  const toggleGroup = async (groupID: ID) => {
+    if (!groupSession.active || groupSession.pending || busy || driveBusy) return
+    groupSession.pending = true
+    setSavingGroups(true)
     const next = mine.includes(groupID) ? mine.filter((x) => x !== groupID) : [...mine, groupID]
-    selectionFeedback()
-    void mutate({ kind: 'memberGroups', memberID: member.id, groupIDs: next, expectedGroupIDs: mine }, tr('Grupos actualizados')).catch(() => {})
+    try {
+      selectionFeedback()
+      await mutate({ kind: 'memberGroups', memberID: member.id, groupIDs: next, expectedGroupIDs: mine }, tr('Grupos actualizados'))
+    } catch {
+      // Workspace mutation errors are already presented; retain the saved groups.
+    } finally {
+      groupSession.pending = false
+      if (groupSession.active) setSavingGroups(false)
+    }
   }
   return (
     <article className="nx-person" aria-label={member.name}>
@@ -292,9 +312,9 @@ export function PersonPanel({
         {!member.isActive && <span className="nx-tag">{tr('Archivada')}</span>}
       </header>
       {!!groups.length && (
-        <div className="nx-chips wrap" aria-label={tr('Grupos de {0}', member.name)}>
+        <div className="nx-chips wrap" aria-label={tr('Grupos de {0}', member.name)} aria-busy={groupsBusy}>
           {groups.map((g) => (
-            <button key={g.id} className="nx-chip" aria-pressed={mine.includes(g.id)} onClick={() => toggleGroup(g.id)}>
+            <button key={g.id} className="nx-chip" aria-pressed={mine.includes(g.id)} disabled={!present || groupsBusy} onClick={() => void toggleGroup(g.id)}>
               {mine.includes(g.id) && <Check size={14} />}
               {g.name}
             </button>

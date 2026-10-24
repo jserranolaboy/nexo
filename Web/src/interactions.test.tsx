@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactElement } from 'react'
-import { emptySnapshot, newTemplate } from './domain'
+import { emptySnapshot, newTemplate, currentGroups, simulateAction } from './domain'
 import { emptyDrive } from './drive'
 import { t as tr } from './i18n'
 
@@ -153,6 +153,7 @@ import { EventForm, SimpleForm } from './forms'
 import { App } from './App'
 import { DrivePanel } from './DrivePanel'
 import { SpaceManager } from './SpaceManager'
+import { PersonPanel } from './PeopleView'
 
 type Element = ReactElement<Record<string, any>>
 function find(tree: unknown, match: (element: Element) => boolean): Element {
@@ -2626,4 +2627,221 @@ describe('Space removal localization', () => {
       expect(changed).not.toHaveBeenCalled()
     }
   })
+})
+
+async function personGroups(demo = false) {
+  let latest = fixture()
+  latest.groups = [
+    { id: 'group-a', organizationID: 'org', name: 'Group A' },
+    { id: 'group-b', organizationID: 'org', name: 'Group B' },
+  ]
+  const requests: { action: any; resolve: (value: unknown) => void; reject: (error: Error) => void }[] = []
+  test.bridge.mockImplementation((request) => {
+    if (request.command === 'load') return Promise.resolve({ snapshot: latest, drive: emptyDrive })
+    if (request.command === 'driveStatus') return Promise.resolve(emptyDrive)
+    if (request.command === 'mutate') return new Promise((resolve, reject) => requests.push({ action: request.action, resolve, reject }))
+    throw new Error('Unexpected synthetic command')
+  })
+  const providerHooks = new test.Hooks(), personHooks = new test.Hooks()
+  const workspace = () => providerHooks.render(() => WorkspaceProvider({ children: null })).props.value
+  workspace()
+  await flush()
+  if (demo) await workspace().startDemo()
+  const memberID = workspace().snapshot.members[0].id
+  const render = () => {
+    const w = workspace()
+    test.context = w
+    return personHooks.render(() => PersonPanel({ s: w.snapshot, member: w.snapshot.members.find((m: any) => m.id === memberID), openEvent: vi.fn() }))
+  }
+  const group = (id: string) => find(render(), el => el.type === 'button' && el.key === id)
+  return { workspace, render, group, requests, memberID,
+    finish: async (index: number) => {
+      const request = requests[index]
+      const current = currentGroups(latest, request.action.memberID).map(g => g.id).sort()
+      const expected = [...request.action.expectedGroupIDs].sort()
+      if (JSON.stringify(current) !== JSON.stringify(expected)) request.reject(new Error('Synthetic native expectedGroupIDs conflict'))
+      else { latest = simulateAction(latest, request.action); request.resolve(latest) }
+      await flush()
+    },
+  }
+}
+
+describe('Person group mutation ordering', () => {
+  it('does not accept a second conflicting whole-list selection while the first native write is pending', async () => {
+    const r = await personGroups()
+    r.group('group-a').props.onClick()
+    await flush()
+    expect(r.requests).toHaveLength(1)
+    // This is a fresh rendered control during a genuinely pending native request,
+    // not a stale callback or a simulated disabled button click.
+    const second = r.group('group-b')
+    if (!second.props.disabled) second.props.onClick()
+    await r.finish(0)
+    if (r.requests.length > 1) await r.finish(1)
+    expect(currentGroups(r.workspace().snapshot, r.memberID).map(g => g.id)).toContain('group-a')
+    expect(r.workspace().toast?.error).not.toBe(true)
+  })
+  it('does not restore a group just removed by another same-render click in the real demo queue', async () => {
+    const r = await personGroups(true)
+    const w = r.workspace(), initial = currentGroups(w.snapshot, r.memberID).map(g => g.id)
+    expect(initial).toHaveLength(1)
+    const other = w.snapshot.groups.find((g: any) => !initial.includes(g.id)).id
+    const remove = r.group(initial[0]), add = r.group(other)
+    remove.props.onClick()
+    add.props.onClick()
+    await flush()
+    // Either serialize/refuse the second action or preserve its intent; neither
+    // policy should undo the earlier explicit removal.
+    expect(currentGroups(r.workspace().snapshot, r.memberID).map(g => g.id)).not.toContain(initial[0])
+  })
+  it('preserves two sequential native group selections with fresh snapshots', async () => {
+    const r = await personGroups()
+    r.group('group-a').props.onClick()
+    await flush()
+    await r.finish(0)
+    r.group('group-b').props.onClick()
+    await flush()
+    await r.finish(1)
+    expect(currentGroups(r.workspace().snapshot, r.memberID).map(g => g.id).sort()).toEqual(['group-a', 'group-b'])
+    expect(r.workspace().toast?.error).not.toBe(true)
+  })
+  it('preserves sequential removal/addition through real demo simulation', async () => {
+    const r = await personGroups(true)
+    const w = r.workspace(), initial = currentGroups(w.snapshot, r.memberID).map(g => g.id)
+    const other = w.snapshot.groups.find((g: any) => !initial.includes(g.id)).id
+    r.group(initial[0]).props.onClick()
+    await flush()
+    r.group(other).props.onClick()
+    await flush()
+    expect(currentGroups(r.workspace().snapshot, r.memberID).map(g => g.id)).toEqual([other])
+  })
+})
+
+function pendingPersonGroups(initialGroups = false) {
+  let s = fixture(), memberID = 'member'
+  s.members.push({ id: 'other-member', organizationID: 'org', name: 'Bea', isActive: true })
+  s.groups = [{ id: 'group-a', organizationID: 'org', name: 'Group A' }, { id: 'group-b', organizationID: 'org', name: 'Group B' }]
+  if (initialGroups) s.memberships.push({ id: 'existing-membership', memberID, groupID: 'group-a', startsAt: '2026-10-20T00:00:00Z' })
+  const requests: { action: any; resolve: (value: unknown) => void; reject: (error: Error) => void }[] = []
+  const mutate = vi.fn((action) => new Promise((resolve, reject) => requests.push({ action, resolve, reject })))
+  test.context = { mutate }
+  const hooks = new test.Hooks()
+  const render = () => hooks.render(() => PersonPanel({ s, member: s.members.find(m => m.id === memberID)!, openEvent: vi.fn() }))
+  return { mutate, requests, render,
+    group: (id = 'group-a') => find(render(), el => el.type === 'button' && el.key === id),
+    switchMember: () => { memberID = 'other-member'; return render() },
+    resolve: async (i = 0) => { s = simulateAction(s, requests[i].action); requests[i].resolve(s); await flush() },
+    reject: async (i = 0) => { requests[i].reject(new Error('Synthetic group write failed')); await flush() },
+    dispose: () => hooks.dispose(),
+  }
+}
+
+describe('Person group request lifetime', () => {
+  it('guards same-render group callbacks and shows pending state until settlement', async () => {
+    const r = pendingPersonGroups(), tree = r.render()
+    find(tree, el => el.type === 'button' && el.key === 'group-a').props.onClick()
+    find(tree, el => el.type === 'button' && el.key === 'group-b').props.onClick()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.group().props.disabled).toBe(true)
+    expect(find(r.render(), el => el.props.className === 'nx-chips wrap').props['aria-busy']).toBe(true)
+    await r.resolve()
+    expect(r.group().props.disabled).not.toBe(true)
+    expect(r.group().props['aria-pressed']).toBe(true)
+  })
+  it('preserves saved groups on current failure and permits a retry', async () => {
+    const r = pendingPersonGroups(true)
+    r.group('group-b').props.onClick()
+    await r.reject()
+    expect(r.group().props['aria-pressed']).toBe(true)
+    expect(r.group('group-b').props['aria-pressed']).toBe(false)
+    expect(r.group('group-b').props.disabled).not.toBe(true)
+    r.group('group-b').props.onClick()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    expect(r.requests[1].action).toMatchObject({ groupIDs: ['group-a', 'group-b'], expectedGroupIDs: ['group-a'] })
+    await r.resolve(1)
+    expect(r.group('group-b').props['aria-pressed']).toBe(true)
+  })
+  it.each(['resolve', 'reject'] as const)('keeps another person request locked when the old request %ss', async (outcome) => {
+    const r = pendingPersonGroups(), oldControl = r.group()
+    oldControl.props.onClick()
+    r.switchMember()
+    expect(r.group().props.disabled).not.toBe(true)
+    r.group('group-b').props.onClick()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    oldControl.props.onClick()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    await r[outcome]()
+    expect(r.group().props.disabled).toBe(true)
+    r.group().props.onClick()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    await r.resolve(1)
+    expect(r.group().props.disabled).not.toBe(true)
+    expect(r.group('group-b').props['aria-pressed']).toBe(true)
+    expect(r.group().props['aria-pressed']).toBe(false)
+  })
+  it('ignores both retained and rendered controls after the person panel starts exiting', () => {
+    const r = pendingPersonGroups(), oldControl = r.group()
+    test.present = false
+    r.render()
+    oldControl.props.onClick()
+    r.group('group-b').props.onClick()
+    expect(r.mutate).not.toHaveBeenCalled()
+  })
+  it.each(['resolve', 'reject'] as const)('starts a fresh request after exit reversal without old %s unlocking it', async (outcome) => {
+    const r = pendingPersonGroups()
+    r.group().props.onClick()
+    test.present = false
+    r.render()
+    test.present = true
+    expect(r.group().props.disabled).not.toBe(true)
+    r.group('group-b').props.onClick()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    await r[outcome]()
+    expect(r.group().props.disabled).toBe(true)
+    r.group().props.onClick()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    await r.resolve(1)
+    expect(r.group().props.disabled).not.toBe(true)
+    expect(r.group('group-b').props['aria-pressed']).toBe(true)
+  })
+  it('does not start a mutation through old controls after unmount', () => {
+    const r = pendingPersonGroups(), group = r.group()
+    r.dispose()
+    group.props.onClick()
+    expect(r.mutate).not.toHaveBeenCalled()
+  })
+  it('leaves rename and archive operations independent of the group lock', async () => {
+    const r = pendingPersonGroups()
+    r.group().props.onClick()
+    const tree = r.render()
+    component(tree, 'InlineText').props.onSave('Renamed')
+    find(tree, el => el.type === 'button' && el.props.className === 'nx-link subtle').props.onClick()
+    expect(r.requests.map(request => request.action.kind)).toEqual(['memberGroups', 'updateMember', 'updateMember'])
+    for (let i = 0; i < 3; i++) await r.resolve(i)
+  })
+})
+
+it('Reopened same-person controls do not enqueue another stale whole-list write while its original native mutation is still pending', async () => {
+  const r = await personGroups()
+  r.group('group-a').props.onClick()
+  await flush()
+  expect(r.requests).toHaveLength(1)
+  test.present = false
+  r.render()
+  test.present = true
+  const second = r.group('group-b')
+  if (!second.props.disabled) second.props.onClick()
+  await r.finish(0)
+  if (r.requests.length > 1) await r.finish(1)
+  expect(currentGroups(r.workspace().snapshot, r.memberID).map(g => g.id)).toContain('group-a')
+  expect(r.workspace().toast?.error).not.toBe(true)
+})
+
+it.each(['busy', 'driveBusy'])('defers person group replacements while workspace %s can change the saved selection', (flag) => {
+  const r = pendingPersonGroups(true)
+  ;(test.context as Record<string, unknown>)[flag] = true
+  expect(r.group('group-b').props.disabled).toBe(true)
+  r.group('group-b').props.onClick()
+  expect(r.mutate).not.toHaveBeenCalled()
+  expect(r.group().props['aria-pressed']).toBe(true)
 })
