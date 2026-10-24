@@ -35,7 +35,11 @@ final class FreshInstallSmokeTests: XCTestCase {
             XCTAssertTrue(field.waitForExistence(timeout: 15), app.debugDescription)
             field.tap()
             field.typeText(value)
-            XCTAssertEqual(field.value as? String, value)
+            // Observe the complete input before submitting; never retype a prefix.
+            let complete = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", value), object: field)
+            let result = XCTWaiter.wait(for: [complete], timeout: 8)
+            XCTAssertEqual(result, .completed, "Incomplete input for \(label)\n\(app.debugDescription)")
+            XCTAssertEqual(field.value as? String, value, "The complete text must reach \(label)")
         }
 
         app.launch()
