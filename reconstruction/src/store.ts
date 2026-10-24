@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { draftFromUnknown, layoutDocument, type DocumentDraft, type ExportResult } from './documents.ts'
+import { renderDocumentPdf } from './pdf.ts'
 import { DomainError } from './errors.ts'
 import type {
   Attendance,
@@ -219,6 +220,10 @@ export class DocumentDraftStore {
     return path.join(this.directory, 'document-drafts', 'export.json')
   }
 
+  pdfPath(): string {
+    return path.join(this.directory, 'document-drafts', 'export.pdf')
+  }
+
   saveDocument(draft: DocumentDraft): DocumentDraft {
     const saved = draftFromUnknown(draft)
     this.writeAside(this.documentPath(), { kind: 'nexo-reconstruction-document-draft', ...saved })
@@ -235,21 +240,29 @@ export class DocumentDraftStore {
   }
 
   /**
-   * Writes the page record only when every page fits.
-   * A refusal leaves any previous export bytes in place and does not trim the draft.
+   * Writes the layout and its PDF only when every page fits and every character can be encoded.
+   * A refusal leaves any previous PDF, layout file, and draft bytes in place.
    */
   exportDocument(draft: DocumentDraft): ExportResult {
     const result = layoutDocument(draft)
     if (!result.fits || !result.document) return result
-    this.writeAside(this.exportPath(), { kind: 'nexo-reconstruction-document-export', pages: result.document.pages })
+    const rendered = renderDocumentPdf(result.document)
+    if ('problems' in rendered) return { fits: false, problems: rendered.problems, draft: result.draft, document: null }
+    const layout = `${JSON.stringify({ kind: 'nexo-reconstruction-document-export', pages: result.document.pages }, null, 2)}\n`
+    this.publish(this.pdfPath(), rendered.bytes)
+    this.publish(this.exportPath(), Buffer.from(layout, 'utf8'))
     return result
   }
 
   private writeAside(filePath: string, value: unknown): void {
+    this.publish(filePath, Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8'))
+  }
+
+  private publish(filePath: string, bytes: Buffer): void {
     if (filePath.includes(`${path.sep}revision-copies${path.sep}`)) throw new DomainError('draft-in-backup')
     mkdirSync(path.dirname(filePath), { recursive: true })
     const temporary = `${filePath}.${randomUUID()}.tmp`
-    writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`)
+    writeFileSync(temporary, bytes)
     renameSync(temporary, filePath)
   }
 }

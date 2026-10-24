@@ -13,7 +13,7 @@ export interface PageBox {
 export interface FitProblem {
   id: string
   text: string
-  reason: 'does-not-fit'
+  reason: 'does-not-fit' | 'cannot-encode'
 }
 
 export interface FitReport {
@@ -47,7 +47,10 @@ export interface ExportedPage {
   notes: string[]
 }
 
-/** Page record produced by this package. It is not an Apple PDF. */
+/**
+ * Layout record. `export.json` keeps this design.
+ * The delivered file is a separate PDF built from these pages, not the Apple renderer.
+ */
 export interface DocumentExport {
   pages: ExportedPage[]
 }

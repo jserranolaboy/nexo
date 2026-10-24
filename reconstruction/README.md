@@ -8,9 +8,9 @@ La asistencia es `presentes / (presentes + ausentes)`. Si no hay registros compu
 
 ## Documentos
 
-El borrador documental se guarda en `document-drafts/document.json`. Si el contenido cabe, la exportación queda en `document-drafts/export.json`. Ninguno de los dos entra en `nexo-reconstruction-v1.json` ni en `revision-copies`.
+El borrador documental se guarda en `document-drafts/document.json`. La cuadrícula de páginas queda en `document-drafts/export.json` y, a partir de ella, el archivo que se entrega es `document-drafts/export.pdf`. Ninguno entra en `nexo-reconstruction-v1.json` ni en `revision-copies`.
 
-Cada página conserva el título, el encabezado, el pie, las líneas y las notas de lo que se colocó ahí. Si un título, un encabezado, un pie, una fila o un bloque no cabe en una página, el aviso trae el texto completo y no se escribe la exportación. No se recorta texto. Esta exportación es una cuadrícula de caracteres, no el PDF de Apple.
+Ese PDF es un archivo PDF 1.4 con una página por cada página del diseño. Conserva el título, el encabezado, el pie, el contenido y las notas. Si algo no cabe en la página, o un carácter no entra en la codificación WinAnsi de esta fuente, el aviso trae el texto completo y no se reemplazan el PDF anterior ni el borrador. No es el PDF de CoreGraphics ni una hoja de firma de la app de Apple.
 
 ## Comandos
 
