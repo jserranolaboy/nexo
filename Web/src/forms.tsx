@@ -72,24 +72,31 @@ function NewChip({ label, onCreate }: { label: string; onCreate: (name: string) 
   const [editing, setEditing] = useState(false),
     [name, setName] = useState(''),
     [saving, setSaving] = useState(false)
-  const submitting = useRef(false)
+  const submitting = useRef(false),
+    editingVersion = useRef(0)
   if (!editing)
     return (
-      <button type="button" className="nx-chip add" onClick={() => setEditing(true)}>
+      <button type="button" className="nx-chip add" onClick={() => {
+        editingVersion.current++
+        setEditing(true)
+      }}>
         <Plus size={14} />
         {label}
       </button>
     )
+  const version = editingVersion.current
+  const finishEditing = () => {
+    editingVersion.current++
+    setName('')
+    setEditing(false)
+  }
   const save = async () => {
-    if (submitting.current) return
-    if (!name.trim()) return setEditing(false)
+    if (version !== editingVersion.current || submitting.current) return
+    if (!name.trim()) return finishEditing()
     submitting.current = true
     setSaving(true)
     try {
-      if (await onCreate(name.trim())) {
-        setName('')
-        setEditing(false)
-      }
+      if (await onCreate(name.trim())) finishEditing()
     } finally {
       submitting.current = false
       setSaving(false)
@@ -104,7 +111,9 @@ function NewChip({ label, onCreate }: { label: string; onCreate: (name: string) 
         maxLength={200}
         aria-label={label}
         placeholder={label}
-        onChange={(e) => setName(e.target.value)}
+        onChange={(e) => {
+          if (version === editingVersion.current && !submitting.current) setName(e.target.value)
+        }}
         onBlur={() => void save()}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
@@ -113,7 +122,7 @@ function NewChip({ label, onCreate }: { label: string; onCreate: (name: string) 
           }
           if (e.key === 'Escape') {
             e.stopPropagation()
-            setEditing(false)
+            if (version === editingVersion.current && !submitting.current) finishEditing()
           }
         }}
       />
@@ -203,6 +212,7 @@ function EventFormBody({
     [capacity, setCapacity] = useState(source?.volunteerCapacity ?? 4),
     [copyList, setCopyList] = useState(true)
   const { error, saving, run } = useSubmit()
+  const classificationVersion = useRef(0)
   const categories = s.categories.filter((c) => c.componentID === componentID)
   const sourceRows =
     draft.mode === 'duplicate' && source
@@ -238,18 +248,18 @@ function EventFormBody({
     if (ok) close()
   }
   const createComponent = async (name: string) => {
-    const newID = id()
+    const newID = id(), version = classificationVersion.current
     const ok = await run(() => mutate({ kind: 'addComponent', id: newID, organizationID: orgID, name }))
-    if (ok) {
+    if (ok && version === classificationVersion.current) {
       setComponentID(newID)
       setCategoryID('')
     }
     return ok
   }
   const createCategory = async (name: string) => {
-    const newID = id()
+    const newID = id(), version = classificationVersion.current
     const ok = await run(() => mutate({ kind: 'addCategory', id: newID, componentID, name }))
-    if (ok) setCategoryID(newID)
+    if (ok && version === classificationVersion.current) setCategoryID(newID)
     return ok
   }
   return (
@@ -304,6 +314,7 @@ function EventFormBody({
               className="nx-chip"
               aria-pressed={componentID === c.id}
               onClick={() => {
+                classificationVersion.current++
                 setComponentID(c.id)
                 setCategoryID('')
               }}
@@ -329,12 +340,15 @@ function EventFormBody({
                 key={c.id}
                 className="nx-chip"
                 aria-pressed={categoryID === c.id}
-                onClick={() => setCategoryID(categoryID === c.id ? '' : c.id)}
+                onClick={() => {
+                  classificationVersion.current++
+                  setCategoryID(categoryID === c.id ? '' : c.id)
+                }}
               >
                 {c.name}
               </button>
             ))}
-            <NewChip label={tr('Categoría')} onCreate={createCategory} />
+            <NewChip key={componentID} label={tr('Categoría')} onCreate={createCategory} />
           </div>
         </fieldset>
       )}

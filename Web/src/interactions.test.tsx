@@ -1336,3 +1336,186 @@ describe('Space rename lifecycle', () => {
     expect(next.props.current).toMatchObject({ id: 'other-org', name: 'Other space' })
   })
 })
+
+function classificationChip(
+  kind: "component" | "category",
+  mutate = vi.fn().mockResolvedValue(fixture()),
+) {
+  const s = fixture();
+  s.categories = [
+    { id: "category", componentID: "component", name: "Synthetic category" },
+  ];
+  s.events[0].categoryID = "category";
+  const form = eventForm(s, "edit", mutate),
+    hooks = new test.Hooks();
+  const render = () =>
+    hooks.render(() =>
+      invoke(
+        find(
+          form.render(),
+          (element) =>
+            typeof element.type === "function" &&
+            element.type.name === "NewChip" &&
+            element.props.label ===
+              tr(kind === "component" ? "Otro" : "Categoría"),
+        ),
+      ),
+    );
+  const input = () => find(render(), (element) => element.type === "input");
+  const open = (name: string) => {
+    render().props.onClick();
+    input().props.onChange({ target: { value: name } });
+  };
+  return { render, input, open, mutate, form, s };
+}
+
+describe("Event classification cancellation lifecycle", () => {
+  it.each(["component", "category"] as const)(
+    "Escape cancels %s creation before trailing blur or Enter",
+    async (kind) => {
+      const chip = classificationChip(kind);
+      chip.open("Do not create");
+      const input = chip.input();
+      input.props.onKeyDown({ key: "Escape", stopPropagation: vi.fn() });
+      input.props.onBlur();
+      input.props.onKeyDown({ key: "Enter", preventDefault: vi.fn() });
+      await flush();
+      expect(chip.mutate).not.toHaveBeenCalled();
+      expect(chip.render().type).toBe("button");
+      chip.render().props.onClick();
+      expect(chip.input().props.value).toBe("");
+    },
+  );
+
+  it("does not present a submitted creation as canceled, and keeps its rejected name retryable", async () => {
+    let reject!: (error: Error) => void;
+    const pending = new Promise<void>((_resolve, fail) => {
+      reject = fail;
+    });
+    const chip = classificationChip(
+      "component",
+      vi.fn().mockReturnValueOnce(pending).mockResolvedValue(fixture()),
+    );
+    chip.open("Keep rejected name");
+    const input = chip.input();
+    input.props.onKeyDown({ key: "Enter", preventDefault: vi.fn() });
+    input.props.onKeyDown({ key: "Escape", stopPropagation: vi.fn() });
+    expect(chip.input().props).toMatchObject({
+      value: "Keep rejected name",
+      readOnly: true,
+    });
+    reject(new Error("Synthetic creation failed"));
+    await flush();
+    expect(chip.input().props).toMatchObject({
+      value: "Keep rejected name",
+      readOnly: false,
+    });
+    chip.input().props.onKeyDown({ key: "Enter", preventDefault: vi.fn() });
+    await flush();
+    expect(chip.mutate).toHaveBeenCalledTimes(2);
+    expect(chip.mutate.mock.calls[1][0].name).toBe("Keep rejected name");
+    expect(chip.render().type).toBe("button");
+  });
+
+  it("ignores a retained input callback after successful creation closes the editor", async () => {
+    const chip = classificationChip("component");
+    chip.open("Create once");
+    const input = chip.input();
+    input.props.onKeyDown({ key: "Enter", preventDefault: vi.fn() });
+    await flush();
+    expect(chip.render().type).toBe("button");
+    input.props.onBlur();
+    await flush();
+    expect(chip.mutate).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Event classification asynchronous choice preservation", () => {
+  it("ignores old-session callbacks after a canceled classification input reopens", async () => {
+    const chip = classificationChip("component");
+    chip.open("Canceled name");
+    const old = chip.input();
+    old.props.onKeyDown({ key: "Escape", stopPropagation: vi.fn() });
+    chip.open("Current name");
+    old.props.onChange({ target: { value: "Stale value" } });
+    old.props.onBlur();
+    old.props.onKeyDown({ key: "Escape", stopPropagation: vi.fn() });
+    await flush();
+    expect(chip.mutate).not.toHaveBeenCalled();
+    expect(chip.input().props.value).toBe("Current name");
+  });
+
+  it.each(["component", "category-component", "category-category"] as const)(
+    "retains newer explicit selection after pending %s creation",
+    async (choice) => {
+      let complete!: (value: ReturnType<typeof fixture>) => void;
+      const pending = new Promise<ReturnType<typeof fixture>>((resolve) => {
+        complete = resolve;
+      });
+      const mutate = vi
+        .fn()
+        .mockReturnValueOnce(pending)
+        .mockResolvedValue(fixture());
+      const chip = classificationChip(
+        choice === "component" ? "component" : "category",
+        mutate,
+      );
+      chip.s.components.push({
+        id: "other-component",
+        organizationID: "org",
+        name: "Other component",
+      });
+      chip.s.categories.push({
+        id: "other-category",
+        componentID: "component",
+        name: "Other category",
+      });
+      chip.open("Created classification");
+      chip.input().props.onKeyDown({ key: "Enter", preventDefault: vi.fn() });
+      find(
+        chip.form.render(),
+        (element) =>
+          element.type === "button" &&
+          element.props.children ===
+            (choice === "category-category"
+              ? "Other category"
+              : "Other component"),
+      ).props.onClick();
+      complete(chip.s);
+      await flush();
+      await chip.form.render().props.onSubmit({ preventDefault: vi.fn() });
+      const saved = mutate.mock.calls[1][0].entity;
+      expect(saved.componentID).toBe(
+        choice === "category-category" ? "component" : "other-component",
+      );
+      expect(saved.categoryID).toBe(
+        choice === "category-category" ? "other-category" : undefined,
+      );
+    },
+  );
+
+  it("scopes an unsaved category input to its selected component", () => {
+    const chip = classificationChip("category");
+    chip.s.components.push({
+      id: "other-component",
+      organizationID: "org",
+      name: "Other component",
+    });
+    const category = () =>
+      find(
+        chip.form.render(),
+        (element) =>
+          typeof element.type === "function" &&
+          element.type.name === "NewChip" &&
+          element.props.label === tr("Categoría"),
+      );
+    expect(category().key).toBe("component");
+    find(
+      chip.form.render(),
+      (element) =>
+        element.type === "button" &&
+        element.props.children === "Other component",
+    ).props.onClick();
+    expect(category().key).toBe("other-component");
+  });
+});
