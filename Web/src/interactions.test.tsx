@@ -83,6 +83,7 @@ const test = vi.hoisted(() => {
   const bridge = vi.fn()
   const surface = Object.assign(new EventTarget(), {
     innerWidth: 1200,
+    nexoLocale: 'en',
     matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
     webkit: { messageHandlers: { valentina: { postMessage: bridge } } },
   })
@@ -150,6 +151,7 @@ import { DocumentStudio } from './Studio'
 import { WorkspaceProvider } from './workspace'
 import { EventForm, SimpleForm } from './forms'
 import { App } from './App'
+import { DrivePanel } from './DrivePanel'
 
 type Element = ReactElement<Record<string, any>>
 function find(tree: unknown, match: (element: Element) => boolean): Element {
@@ -2358,5 +2360,52 @@ describe('Attendance note retained exit errors and re-entry', () => {
     await flush()
     expect(r.close).toHaveBeenCalledOnce()
     expect(r.openMember).not.toHaveBeenCalled()
+  })
+})
+
+describe('Drive interface localization', () => {
+  const space = (key = 'template:synthetic') => ({
+    organizationID: 'org', folderID: 'synthetic-folder', pending: 0, canEdit: true, error: '',
+    conflicts: [{ key, versions: [{ id: 'synthetic-version', device: 'Synthetic Mac', date: '2026-10-24T12:00:00Z', summary: 'Synthetic template' }] }],
+  })
+  it('shows English while connecting rather than leaking a Spanish pending label', async () => {
+    let resolve!: () => void
+    const runDrive = vi.fn(() => new Promise<void>(done => { resolve = done }))
+    const context = { drive: { ...emptyDrive, configured: true }, driveBusy: false, runDrive }
+    test.context = context
+    const hooks = new test.Hooks(), render = () => hooks.render(() => DrivePanel({ orgID: 'org' }))
+    const button = (tree: unknown) => find(tree, el => el.type === 'button' && el.props.className === 'button primary')
+    expect(button(render()).props.children).toContain('Connect Google')
+    button(render()).props.onClick()
+    context.driveBusy = true
+    const pending = button(render())
+    expect(pending.props.children).toContain('Connecting…')
+    expect(pending.props.disabled).toBe(true)
+    expect(runDrive).toHaveBeenCalledExactlyOnceWith('driveConnect', {})
+    resolve()
+    await flush()
+  })
+  it('shows English while preparing a synthetic conflict preview', async () => {
+    let resolve!: (value: unknown) => void
+    test.bridge.mockImplementation(() => new Promise(done => { resolve = done }))
+    test.context = { drive: { ...emptyDrive, configured: true, connected: true, spaces: [space()] }, driveBusy: false, notify: vi.fn() }
+    const panelHooks = new test.Hooks(), previewHooks = new test.Hooks()
+    const preview = component(panelHooks.render(() => DrivePanel({ orgID: 'org' })), 'VersionPreview')
+    const render = () => previewHooks.render(() => invoke(preview))
+    const button = (tree: unknown) => find(tree, el => el.type === 'button')
+    expect(button(render()).props.children).toContain('View template')
+    button(render()).props.onClick()
+    expect(button(render()).props.children).toContain('Preparing…')
+    expect(button(render()).props.disabled).toBe(true)
+    expect(test.bridge).toHaveBeenCalledExactlyOnceWith({ command: 'drivePreviewTemplate', organizationID: 'org', key: 'template:synthetic', versionID: 'synthetic-version' })
+    resolve({ token: 'synthetic-preview', pageCount: 1, image: 'synthetic-image' })
+    await flush()
+    expect(find(render(), el => el.type === 'img').props.alt).toBe('Template, page 1')
+  })
+  it('translates the fallback conflict heading without changing user content', () => {
+    test.context = { drive: { ...emptyDrive, connected: true, spaces: [space('unknown:synthetic')] }, driveBusy: false }
+    const hooks = new test.Hooks(), tree = hooks.render(() => DrivePanel({ orgID: 'org' }))
+    expect(find(tree, el => el.type === 'h4').props.children).toBe('Record')
+    expect(find(tree, el => el.type === 'p' && el.props.children === 'Synthetic template').props.children).toBe('Synthetic template')
   })
 })

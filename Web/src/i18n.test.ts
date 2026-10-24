@@ -23,3 +23,14 @@ describe('System language', () => {
     }
   })
 })
+
+
+describe('Drive pending labels', () => {
+  it.each([
+    ['Conectando…', 'Connecting…'],
+    ['Preparando…', 'Preparing…'],
+  ])('translates %s without changing Spanish', (spanish, english) => {
+    expect(translate(spanish, 'en')).toBe(english)
+    expect(translate(spanish, 'es')).toBe(spanish)
+  })
+})

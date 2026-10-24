@@ -692,5 +692,7 @@ public enum NexoLocale {
         "El espacio del borrador no está disponible.": "The draft’s space is unavailable.",
         "El borrador se conserva sin cambios. Puedes volver a intentar abrirlo.": "Your draft is unchanged. You can try opening it again.",
         "Restaura su espacio desde Papelera o importa una copia que lo incluya antes de reintentar.": "Restore its space from Trash or import a backup containing it before trying again.",
+        "Conectando…": "Connecting…",
+        "Preparando…": "Preparing…",
     ]
 }

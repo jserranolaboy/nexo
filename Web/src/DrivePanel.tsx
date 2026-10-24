@@ -89,7 +89,7 @@ export function DrivePanel({ orgID }: { orgID: ID }) {
             >
               <Cloud size={16} />
               {w.driveBusy
-                ? 'Conectando…'
+                ? tr('Conectando…')
                 : state.requiresKeychainAccess
                   ? tr('Autorizar llavero')
                   : tr('Conectar Google')}
@@ -281,7 +281,7 @@ export function DrivePanel({ orgID }: { orgID: ID }) {
           <p>{tr('Elige la versión que se usará. Ambas se conservan en el historial de Drive.')}</p>
           {space.conflicts.map((conflict) => (
             <div className="drive-conflict" key={conflict.key}>
-              <h4>{keyLabels[conflict.key.split(':')[0]] || 'Registro'}</h4>
+              <h4>{keyLabels[conflict.key.split(':')[0]] || tr('Registro')}</h4>
               <div className="drive-versions">
                 {conflict.versions.map((version) => (
                   <article key={version.id}>
@@ -388,7 +388,7 @@ function VersionPreview({
       {!preview ? (
         <button className="button compact" disabled={busy} onClick={() => void show()}>
           <Eye size={15} />
-          {busy ? 'Preparando…' : tr('Ver plantilla')}
+          {busy ? tr('Preparando…') : tr('Ver plantilla')}
         </button>
       ) : (
         <>
