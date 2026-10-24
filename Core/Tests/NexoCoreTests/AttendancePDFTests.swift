@@ -25,6 +25,33 @@ final class AttendancePDFTests: XCTestCase {
         return data as Data
     }
 
+    func testSingleLineFreeTextMarkersRemainExtractable() throws {
+        let organization = Organization(name: "Synthetic PDF workspace")
+        let component = ActivityComponent(organizationID: organization.id, name: "Synthetic component")
+        let event = ActivityEvent(organizationID: organization.id, title: "Synthetic event",
+                                  startsAt: .now, componentID: component.id)
+        let template = DocumentTemplate(organizationID: organization.id, name: "Single-line controls",
+            textBlocks: [
+                TemplateTextBlock(text: "FREE_TEXT_START", x: 46, y: 420, width: 220, fontSize: 12),
+                TemplateTextBlock(text: "FREE_TEXT_END", x: 46, y: 480, width: 220, fontSize: 12)
+            ])
+        var snapshot = WorkspaceSnapshot()
+        snapshot.organizations = [organization]
+        snapshot.components = [component]
+        snapshot.events = [event]
+        snapshot.templates = [template]
+        try WorkspaceRules.validate(snapshot)
+
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nexo-free-text-control-\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try AttendancePDF.render(organization: organization, event: event, entries: [],
+                                 template: template, mode: .blank, to: file)
+        let text = try XCTUnwrap(PDFDocument(url: file)?.string)
+        XCTAssertTrue(text.contains("FREE_TEXT_START"), "Single-line control: \(String(reflecting: text))")
+        XCTAssertTrue(text.contains("FREE_TEXT_END"), "Single-line control: \(String(reflecting: text))")
+    }
+
     func testMultilineFreeTextPreservesFinalLine() throws {
         let organization = Organization(name: "Synthetic PDF workspace")
         let component = ActivityComponent(organizationID: organization.id, name: "Synthetic component")
@@ -49,8 +76,8 @@ final class AttendancePDFTests: XCTestCase {
         try AttendancePDF.render(organization: organization, event: event, entries: [],
                                  template: template, mode: .blank, to: file)
         let text = try XCTUnwrap(PDFDocument(url: file)?.string)
-        XCTAssertTrue(text.contains("FREE_TEXT_START"))
-        XCTAssertTrue(text.contains("FREE_TEXT_END"), "Export must not silently omit valid free text")
+        XCTAssertTrue(text.contains("FREE_TEXT_START"), "Multiline output: \(String(reflecting: text))")
+        XCTAssertTrue(text.contains("FREE_TEXT_END"), "Export must not silently omit valid free text: \(String(reflecting: text))")
     }
 
     func testImportSkipsSmallPagesAndChosenPageRenders() throws {
