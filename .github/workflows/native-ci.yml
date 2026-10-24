@@ -58,3 +58,51 @@ jobs:
           bin_dir=$(xcrun swift build --package-path Native --scratch-path "$RUNNER_TEMP/nexo-native-release" -c release --arch arm64 --arch x86_64 --show-bin-path)
           xcrun lipo -archs "$bin_dir/Nexo"
           xcrun lipo "$bin_dir/Nexo" -verify_arch arm64 x86_64
+
+  ios:
+    name: Disposable iOS simulator unit tests
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      NEXO_LIVE_DRIVE_TEST: '0'
+      TEST_RUNNER_NEXO_LIVE_DRIVE_TEST: '0'
+      COREPACK_DEFAULT_TO_LATEST: '0'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.22.1'
+          package-manager-cache: false
+
+      - name: Configure temporary Corepack storage
+        run: echo "COREPACK_HOME=$RUNNER_TEMP/nexo-corepack" >> "$GITHUB_ENV"
+
+      - name: Report toolchain
+        working-directory: Web
+        run: |
+          xcodebuild -version
+          xcrun swift --version
+          node --version
+          corepack pnpm --version
+
+      - name: Build locked web resources
+        working-directory: Web
+        run: |
+          corepack pnpm install --frozen-lockfile
+          corepack pnpm build
+
+      - name: Run synthetic unit tests on a new disposable simulator
+        run: bash scripts/test-ios-ci.sh
+
+      - name: Remove any remaining job-owned simulator
+        if: always()
+        run: bash scripts/test-ios-ci.sh --cleanup
