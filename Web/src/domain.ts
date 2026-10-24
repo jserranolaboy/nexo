@@ -565,7 +565,7 @@ export function simulateAction(snapshot: Snapshot, action: Action): Snapshot {
     }
     case 'volunteer': {
       const v = s.volunteers.find((v) => v.eventID === eventID && v.memberID === memberID)
-      if (!v || !event || event.isCancelled)
+      if (!v || !event || (event.isCancelled && action.status === 'selected'))
         throw new Error(tr('El voluntariado no está disponible.'))
       const next = action.status as VolunteerStatus
       const allowed: Record<VolunteerStatus, VolunteerStatus[]> = {

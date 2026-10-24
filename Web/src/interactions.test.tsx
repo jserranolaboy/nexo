@@ -3036,3 +3036,243 @@ describe('Toast contents and actions across document-sheet dismissal', () => {
     expect(() => find(notice, element => element.type === 'button')).toThrow()
   })
 })
+
+function legacyVolunteerFixture(cancelled = false) {
+  const s = fixture()
+  s.events[0] = { ...s.events[0], volunteerCapacity: 1, isCancelled: cancelled }
+  s.members.push(
+    ...['bea', 'cora', 'dora'].map((id) => ({
+      id,
+      organizationID: 'org',
+      name: id,
+      isActive: true,
+    })),
+  )
+  s.volunteers = [
+    {
+      id: 'selection',
+      eventID: 'event',
+      memberID: 'member',
+      status: 'selected',
+      registeredAt: '2026-10-01T10:00:00Z',
+    },
+    {
+      id: 'completion',
+      eventID: 'event',
+      memberID: 'bea',
+      status: 'completed',
+      registeredAt: '2026-10-01T11:00:00Z',
+    },
+    {
+      id: 'waiting',
+      eventID: 'event',
+      memberID: 'cora',
+      status: 'interested',
+      registeredAt: '2026-10-01T12:00:00Z',
+    },
+    {
+      id: 'history',
+      eventID: 'event',
+      memberID: 'dora',
+      status: 'noShow',
+      registeredAt: '2026-09-01T12:00:00Z',
+    },
+  ]
+  return s
+}
+const legacyOccupied = (s: ReturnType<typeof fixture>) =>
+  s.volunteers.filter((v) => v.status === 'selected' || v.status === 'completed').length
+function legacyVolunteerUI(cancelled = false) {
+  let s = legacyVolunteerFixture(cancelled)
+  const eventHooks = new test.Hooks(),
+    volunteerHooks = new test.Hooks(),
+    moreHooks = new test.Hooks()
+  const failures: Error[] = []
+  const mutate = vi.fn(async (action: Parameters<typeof simulateAction>[1]) => {
+    try {
+      s = simulateAction(s, action)
+      return s
+    } catch (error) {
+      failures.push(error as Error)
+      throw error
+    }
+  })
+  test.context = { mutate, busy: false, notify: vi.fn() }
+  const event = () =>
+    eventHooks.render(() =>
+      EventView({ s, event: s.events[0], edit: vi.fn(), document: vi.fn(), openMember: vi.fn() }),
+    )
+  component(event(), 'Segmented').props.onChange('volunteers')
+  const render = () => volunteerHooks.render(() => invoke(component(event(), 'Volunteers')))
+  const more = () => moreHooks.render(() => invoke(component(render(), 'VolunteerMore')))
+  const release = () => {
+    find(
+      more(),
+      (e) => e.type === 'button' && e.props['aria-label'] === tr('Más opciones'),
+    ).props.onClick()
+    find(
+      more(),
+      (e) =>
+        typeof e.type === 'function' &&
+        e.type.name === 'MenuItem' &&
+        e.props.children === tr('Retirar y liberar cupo'),
+    ).props.onClick()
+  }
+  return { snapshot: () => s, failures, mutate, render, release }
+}
+
+describe('Legacy volunteer capacity repairs and cancelled-event parity', () => {
+  it('permits a deliberate capacity increase without changing any volunteer history', () => {
+    const s = legacyVolunteerFixture(),
+      before = structuredClone(s)
+    const repaired = simulateAction(s, {
+      kind: 'updateEvent',
+      entity: { ...s.events[0], volunteerCapacity: 2 },
+    })
+    expect(repaired.events[0].volunteerCapacity).toBe(2)
+    expect(repaired.volunteers).toEqual(before.volunteers)
+    expect(s).toEqual(before)
+  })
+  it('actual event-form Plus and Submit raise capacity and preserve history', async () => {
+    const s = legacyVolunteerFixture(),
+      before = structuredClone(s)
+    let result = s
+    const mutate = vi.fn(async (action: Parameters<typeof simulateAction>[1]) => {
+      result = simulateAction(result, action)
+      return result
+    })
+    const r = eventForm(s, 'edit', mutate)
+    find(
+      r.render(),
+      (e) => e.type === 'button' && e.props['aria-label'] === tr('Más cupos'),
+    ).props.onClick()
+    expect(find(r.render(), (e) => e.type === 'output').props.children).toBe(2)
+    await r.render().props.onSubmit({ preventDefault: vi.fn() })
+    expect(mutate).toHaveBeenCalledOnce()
+    expect(r.close).toHaveBeenCalledOnce()
+    expect(result.events[0].volunteerCapacity).toBe(2)
+    expect(result.volunteers).toEqual(before.volunteers)
+    expect(s).toEqual(before)
+  })
+  it('actual selected-row release callback frees one place and retains every row', async () => {
+    const r = legacyVolunteerUI(),
+      before = structuredClone(r.snapshot())
+    r.release()
+    await flush()
+    expect(r.failures).toEqual([])
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.snapshot().volunteers).toEqual(
+      before.volunteers.map((v) => (v.id === 'selection' ? { ...v, status: 'declined' } : v)),
+    )
+    expect(legacyOccupied(r.snapshot())).toBe(1)
+    expect(r.snapshot().events).toEqual(before.events)
+  })
+  it('selected no-show repair frees capacity without deleting history', () => {
+    const s = legacyVolunteerFixture()
+    const result = simulateAction(s, {
+      kind: 'volunteer',
+      eventID: 'event',
+      memberID: 'member',
+      status: 'noShow',
+    })
+    expect(legacyOccupied(result)).toBe(1)
+    expect(result.volunteers).toEqual(
+      s.volunteers.map((v) => (v.id === 'selection' ? { ...v, status: 'noShow' } : v)),
+    )
+  })
+  it('completion preserves occupancy and completed-history rows', () => {
+    const s = legacyVolunteerFixture()
+    const result = simulateAction(s, {
+      kind: 'volunteer',
+      eventID: 'event',
+      memberID: 'member',
+      status: 'completed',
+    })
+    expect(legacyOccupied(result)).toBe(2)
+    expect(result.volunteers.find((v) => v.id === 'completion')).toEqual(
+      s.volunteers.find((v) => v.id === 'completion'),
+    )
+  })
+  it('rejects insufficient capacity atomically rather than stranding or deleting rows', () => {
+    const s = legacyVolunteerFixture(),
+      before = structuredClone(s)
+    expect(() =>
+      simulateAction(s, { kind: 'updateEvent', entity: { ...s.events[0], volunteerCapacity: 1 } }),
+    ).toThrow(tr('Hay más voluntarios seleccionados que cupos.'))
+    expect(s).toEqual(before)
+  })
+  it.each(['declined', 'noShow'])('does not rewrite a completed row to %s', (status) => {
+    const s = legacyVolunteerFixture(),
+      before = structuredClone(s)
+    expect(() =>
+      simulateAction(s, { kind: 'volunteer', eventID: 'event', memberID: 'bea', status }),
+    ).toThrow(tr('No se puede realizar ese cambio.'))
+    expect(s).toEqual(before)
+  })
+  it('blocks additional selection while over capacity and disables Choose', () => {
+    const r = legacyVolunteerUI(),
+      before = structuredClone(r.snapshot())
+    const choose = find(r.render(), (e) => e.type === 'button' && e.props.children === tr('Elegir'))
+    expect(choose.props.disabled).toBe(true)
+    expect(() =>
+      simulateAction(r.snapshot(), {
+        kind: 'volunteer',
+        eventID: 'event',
+        memberID: 'cora',
+        status: 'selected',
+      }),
+    ).toThrow(tr('Los cupos están completos.'))
+    expect(r.snapshot()).toEqual(before)
+  })
+  it('still blocks selection on a cancelled event with spare capacity', () => {
+    const s = legacyVolunteerFixture(true)
+    s.events[0].volunteerCapacity = 3
+    expect(() =>
+      simulateAction(s, {
+        kind: 'volunteer',
+        eventID: 'event',
+        memberID: 'cora',
+        status: 'selected',
+      }),
+    ).toThrow(tr('El voluntariado no está disponible.'))
+  })
+  it.each(['declined', 'noShow', 'completed'])(
+    'matches native finalization policy on a cancelled event: %s',
+    (status) => {
+      const s = legacyVolunteerFixture(true),
+        before = structuredClone(s)
+      const result = simulateAction(s, {
+        kind: 'volunteer',
+        eventID: 'event',
+        memberID: 'member',
+        status,
+      })
+      expect(result.volunteers).toEqual(
+        before.volunteers.map((v) => (v.id === 'selection' ? { ...v, status } : v)),
+      )
+      expect(result.events).toEqual(before.events)
+      expect(s).toEqual(before)
+    },
+  )
+  it('actual cancelled-event release menu matches native repair policy', async () => {
+    const r = legacyVolunteerUI(true),
+      before = structuredClone(r.snapshot())
+    r.release()
+    await flush()
+    expect(r.failures).toEqual([])
+    expect(r.snapshot().volunteers).toEqual(
+      before.volunteers.map((v) => (v.id === 'selection' ? { ...v, status: 'declined' } : v)),
+    )
+  })
+  it('matches native withdrawal for an interested applicant on a cancelled event', () => {
+    const s = legacyVolunteerFixture(true), before = structuredClone(s)
+    const result = simulateAction(s, {
+      kind: 'volunteer', eventID: 'event', memberID: 'cora', status: 'declined',
+    })
+    expect(result.volunteers).toEqual(
+      before.volunteers.map(v => v.id === 'waiting' ? { ...v, status: 'declined' } : v),
+    )
+    expect(result.events).toEqual(before.events)
+    expect(s).toEqual(before)
+  })
+})
