@@ -695,5 +695,6 @@ public enum NexoLocale {
         "Conectando…": "Connecting…",
         "Preparando…": "Preparing…",
         "Eliminando…": "Deleting…",
+        "El texto no cabe en la página. Muévelo hacia arriba, amplía su ancho o reduce su tamaño.": "The text does not fit on the page. Move it up, widen it, or reduce its size.",
     ]
 }

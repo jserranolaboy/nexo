@@ -19,6 +19,7 @@ public enum AttendancePDFError: Error, Sendable {
     case cannotCreateDocument
     case invalidColumnLayout
     case invalidBackgroundPDF
+    case textDoesNotFit
 }
 
 /// The paper editor and the exported PDF use these same row heights and page breaks.
@@ -127,6 +128,11 @@ public enum AttendancePDF {
                                     minimumRowHeight: template.rowHeight,
                                     tableTopOffset: template.tableTopOffset ?? 122,
                                     pageSize: page.size, mode: mode)
+        // Preflight every overlay before opening the destination, including later
+        // blocks, so refusing an overflowing draft cannot truncate an existing PDF.
+        let textLayouts = try (template.textBlocks ?? []).filter { !$0.text.isEmpty }.map { block in
+            (block: block, height: try freeTextHeight(block, pageSize: page.size))
+        }
         guard let consumer = CGDataConsumer(url: destination as CFURL),
               let context = CGContext(consumer: consumer, mediaBox: nil, nil)
         else { throw AttendancePDFError.cannotCreateDocument }
@@ -181,10 +187,10 @@ public enum AttendancePDF {
                              in: CGRect(x: block.x, y: page.height - block.y - block.height,
                                         width: block.width, height: block.height))
             }
-            for block in template.textBlocks ?? [] where !block.text.isEmpty {
+            for (block, height) in textLayouts {
                 draw(block.text,
-                     in: CGRect(x: block.x, y: page.height - block.y - block.fontSize * 2.5,
-                                width: block.width, height: block.fontSize * 2.5),
+                     in: CGRect(x: block.x, y: page.height - block.y - height,
+                                width: block.width, height: height),
                      font: .systemFont(ofSize: block.fontSize), color: ink)
             }
             drawFooter(template: template, pageNumber: sourcePageIndex + pageNumber,
@@ -348,13 +354,37 @@ public enum AttendancePDF {
         }
     }
 
+    private static func textAttributes(
+        font: PaperFont,
+        color: PaperColor, alignment: NSTextAlignment = .left
+    ) -> [NSAttributedString.Key: Any] {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = alignment
+        paragraph.lineBreakMode = .byWordWrapping
+        return [.font: font, .foregroundColor: color, .paragraphStyle: paragraph]
+    }
+
+    private static func freeTextHeight(_ block: TemplateTextBlock, pageSize: CGSize) throws -> CGFloat {
+        guard block.x.isFinite, block.y.isFinite, block.width.isFinite, block.fontSize.isFinite,
+              block.x >= 0, block.y >= 0, block.width > 0, block.fontSize > 0,
+              block.x + block.width <= pageSize.width else { throw AttendancePDFError.textDoesNotFit }
+        let bounds = (block.text as NSString).boundingRect(
+            with: CGSize(width: block.width, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: textAttributes(font: .systemFont(ofSize: block.fontSize), color: ink), context: nil)
+        guard bounds.height.isFinite, bounds.height > 0 else { throw AttendancePDFError.textDoesNotFit }
+        // Retain the existing minimum box for short text; longer blocks grow down
+        // from their original top-left anchor without changing the saved template.
+        let height = max(CGFloat(block.fontSize * 2.5), bounds.height.rounded(.up))
+        guard height.isFinite, height > 0, block.y + height <= pageSize.height
+        else { throw AttendancePDFError.textDoesNotFit }
+        return height
+    }
+
     private static func draw(
         _ text: String, in rect: CGRect, font: PaperFont,
         color: PaperColor, alignment: NSTextAlignment = .left
     ) {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = alignment
-        paragraph.lineBreakMode = .byWordWrapping
         #if canImport(UIKit)
         guard let context = UIGraphicsGetCurrentContext() else { return }
         context.saveGState()
@@ -365,9 +395,7 @@ public enum AttendancePDF {
         #else
         let textRect = rect
         #endif
-        (text as NSString).draw(in: textRect, withAttributes: [
-            .font: font, .foregroundColor: color, .paragraphStyle: paragraph
-        ])
+        (text as NSString).draw(in: textRect, withAttributes: textAttributes(font: font, color: color, alignment: alignment))
     }
 
     private static func color(_ hex: String) -> PaperColor {

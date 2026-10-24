@@ -99,6 +99,7 @@ final class NexoViewController: UIViewController, WKScriptMessageHandlerWithRepl
                     default: text = NexoLocale.text("No se pudo guardar este cambio. Revisa la selección.")
                     }
                 } else if error is WorkspaceValidationError { text = NexoLocale.text("Revisa los datos: hay un nombre, fecha o relación que no es válida.") }
+                else if case AttendancePDFError.textDoesNotFit = error { text = NexoLocale.text("El texto no cabe en la página. Muévelo hacia arriba, amplía su ancho o reduce su tamaño.") }
                 else { text = error.localizedDescription }
                 replyHandler(nil, NexoLocale.text(text))
             }

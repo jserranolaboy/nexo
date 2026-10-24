@@ -25,6 +25,228 @@ final class AttendancePDFTests: XCTestCase {
         return data as Data
     }
 
+    func testSingleLineFreeTextMarkersRemainExtractable() throws {
+        let organization = Organization(name: "Synthetic PDF workspace")
+        let component = ActivityComponent(organizationID: organization.id, name: "Synthetic component")
+        let event = ActivityEvent(organizationID: organization.id, title: "Synthetic event",
+                                  startsAt: .now, componentID: component.id)
+        let template = DocumentTemplate(organizationID: organization.id, name: "Single-line controls",
+            textBlocks: [
+                TemplateTextBlock(text: "Beginmarker", x: 46, y: 420, width: 220, fontSize: 12),
+                TemplateTextBlock(text: "Endmarker", x: 46, y: 480, width: 220, fontSize: 12)
+            ])
+        var snapshot = WorkspaceSnapshot()
+        snapshot.organizations = [organization]
+        snapshot.components = [component]
+        snapshot.events = [event]
+        snapshot.templates = [template]
+        try WorkspaceRules.validate(snapshot)
+
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nexo-free-text-control-\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try AttendancePDF.render(organization: organization, event: event, entries: [],
+                                 template: template, mode: .blank, to: file)
+        let text = try XCTUnwrap(PDFDocument(url: file)?.string)
+        XCTAssertTrue(text.contains("Beginmarker"), "Single-line control: \(String(reflecting: text))")
+        XCTAssertTrue(text.contains("Endmarker"), "Single-line control: \(String(reflecting: text))")
+    }
+
+    func testMultilineFreeTextPreservesFinalLine() throws {
+        let organization = Organization(name: "Synthetic PDF workspace")
+        let component = ActivityComponent(organizationID: organization.id, name: "Synthetic component")
+        let event = ActivityEvent(organizationID: organization.id, title: "Synthetic event",
+                                  startsAt: .now, componentID: component.id)
+        let block = TemplateTextBlock(
+            text: "Beginmarker\nSecond line\nThird line\nFourth line\nEndmarker",
+            x: 46, y: 420, width: 220, fontSize: 12)
+        let template = DocumentTemplate(organizationID: organization.id, name: "Multiline free text",
+                                        textBlocks: [block])
+        var snapshot = WorkspaceSnapshot()
+        snapshot.organizations = [organization]
+        snapshot.components = [component]
+        snapshot.events = [event]
+        snapshot.templates = [template]
+        // This is an accepted saved template, not an invalid geometry fixture.
+        try WorkspaceRules.validate(snapshot)
+
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nexo-multiline-free-text-\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try AttendancePDF.render(organization: organization, event: event, entries: [],
+                                 template: template, mode: .blank, to: file)
+        let text = try XCTUnwrap(PDFDocument(url: file)?.string)
+        XCTAssertTrue(text.contains("Beginmarker"), "Multiline output: \(String(reflecting: text))")
+        XCTAssertTrue(text.contains("Endmarker"), "Export must not silently omit valid free text: \(String(reflecting: text))")
+    }
+
+    private typealias FreeTextFixture = (
+        organization: Organization, event: ActivityEvent, template: DocumentTemplate
+    )
+
+    private func validatedFreeTextFixture(
+        _ blocks: [TemplateTextBlock], background: Data? = nil, listPageIndex: Int? = nil
+    ) throws -> FreeTextFixture {
+        let organization = Organization(name: "Synthetic PDF workspace")
+        let component = ActivityComponent(organizationID: organization.id, name: "Synthetic component")
+        let event = ActivityEvent(organizationID: organization.id, title: "Synthetic event",
+                                  startsAt: .now, componentID: component.id)
+        let template = DocumentTemplate(organizationID: organization.id, name: "Free-text policy",
+                                        textBlocks: blocks, backgroundPDFData: background,
+                                        listPageIndex: listPageIndex)
+        var snapshot = WorkspaceSnapshot()
+        snapshot.organizations = [organization]
+        snapshot.components = [component]
+        snapshot.events = [event]
+        snapshot.templates = [template]
+        try WorkspaceRules.validate(snapshot)
+        return (organization, event, template)
+    }
+
+    private func assertFreeTextRefusalPreservesOutputs(
+        _ fixture: FreeTextFixture, file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nexo-free-text-refusal-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let absent = directory.appendingPathComponent("absent.pdf")
+        let existing = directory.appendingPathComponent("existing.pdf")
+        let original = Data("Existing destination must remain byte-for-byte unchanged".utf8)
+        try original.write(to: existing)
+        for mode in [AttendancePDFMode.blank, .completed] {
+            for destination in [absent, existing] {
+                XCTAssertThrowsError(try AttendancePDF.render(
+                    organization: fixture.organization, event: fixture.event, entries: [],
+                    template: fixture.template, mode: mode, to: destination), file: file, line: line
+                ) { error in
+                    guard case AttendancePDFError.textDoesNotFit = error else {
+                        return XCTFail("Unexpected error: \(error)", file: file, line: line)
+                    }
+                }
+                XCTAssertFalse(FileManager.default.fileExists(atPath: absent.path),
+                               "Rejected export must not create a destination", file: file, line: line)
+                XCTAssertEqual(try Data(contentsOf: existing), original,
+                               "Rejected export must not truncate an existing destination", file: file, line: line)
+            }
+        }
+    }
+
+    func testWrappedFreeTextPreservesItsFinalWord() throws {
+        let text = "WRAPPEDSTART "
+            + String(repeating: "Every word belongs in the exported document. ", count: 8)
+            + "WRAPPEDEND"
+        let fixture = try validatedFreeTextFixture([
+            TemplateTextBlock(text: text, x: 46, y: 300, width: 220, fontSize: 12)
+        ])
+        for mode in [AttendancePDFMode.blank, .completed] {
+            let file = FileManager.default.temporaryDirectory
+                .appendingPathComponent("nexo-wrapped-free-text-\(UUID().uuidString).pdf")
+            defer { try? FileManager.default.removeItem(at: file) }
+            try AttendancePDF.render(organization: fixture.organization, event: fixture.event,
+                                     entries: [], template: fixture.template, mode: mode, to: file)
+            let extracted = try XCTUnwrap(PDFDocument(url: file)?.string)
+            XCTAssertTrue(extracted.contains("WRAPPEDSTART"), String(reflecting: extracted))
+            XCTAssertTrue(extracted.contains("WRAPPEDEND"), String(reflecting: extracted))
+        }
+    }
+
+    func testValidMultilineTextBeyondPageRefusesWithoutTouchingOutput() throws {
+        // The persisted 30-point minimum box fits; five full lines do not fit the remaining 42 points.
+        let fixture = try validatedFreeTextFixture([
+            TemplateTextBlock(text: "First line\nSecond line\nThird line\nFourth line\nFifth line",
+                              x: 46, y: 750, width: 220, fontSize: 12)
+        ])
+        try assertFreeTextRefusalPreservesOutputs(fixture)
+    }
+
+    func testLaterOverflowingFreeTextIsPreflightedBeforeOutput() throws {
+        let fixture = try validatedFreeTextFixture([
+            TemplateTextBlock(text: "Earlier fitting block", x: 46, y: 300, width: 220, fontSize: 12),
+            TemplateTextBlock(text: "First line\nSecond line\nThird line\nFourth line\nFifth line",
+                              x: 46, y: 750, width: 220, fontSize: 12)
+        ])
+        try assertFreeTextRefusalPreservesOutputs(fixture)
+    }
+
+    func testFreeTextUsesSelectedImportedPageHeight() throws {
+        let text = "First line\nSecond line\nThird line\nFourth line\nSELECTEDPAGEEND"
+        let letter = CGSize(width: 612, height: 792)
+        // The second, shorter page is selected, not the first page or the default Letter size.
+        let shortPage = try validatedFreeTextFixture([
+            TemplateTextBlock(text: text, x: 46, y: 458, width: 220, fontSize: 12)
+        ], background: try backgroundPDF(pageSizes: [letter, CGSize(width: 420, height: 500)]),
+           listPageIndex: 1)
+        try assertFreeTextRefusalPreservesOutputs(shortPage)
+
+        // Conversely, a taller selected page must accept content below the default page's bottom.
+        let tallPage = try validatedFreeTextFixture([
+            TemplateTextBlock(text: text, x: 46, y: 800, width: 220, fontSize: 12)
+        ], background: try backgroundPDF(pageSizes: [letter, CGSize(width: 420, height: 1000)]),
+           listPageIndex: 1)
+        for mode in [AttendancePDFMode.blank, .completed] {
+            let file = FileManager.default.temporaryDirectory
+                .appendingPathComponent("nexo-imported-free-text-\(UUID().uuidString).pdf")
+            defer { try? FileManager.default.removeItem(at: file) }
+            try AttendancePDF.render(organization: tallPage.organization, event: tallPage.event,
+                                     entries: [], template: tallPage.template, mode: mode, to: file)
+            let document = try XCTUnwrap(PDFDocument(url: file))
+            XCTAssertEqual(document.pageCount, 2)
+            let selected = try XCTUnwrap(document.page(at: 1))
+            XCTAssertEqual(selected.bounds(for: .mediaBox).size, CGSize(width: 420, height: 1000))
+            XCTAssertTrue((selected.string ?? "").contains("SELECTEDPAGEEND"),
+                          String(reflecting: selected.string))
+            XCTAssertFalse((document.page(at: 0)?.string ?? "").contains("SELECTEDPAGEEND"))
+        }
+    }
+
+    func testLegacySingleLineAtBottomBoundaryStillRenders() throws {
+        let fixture = try validatedFreeTextFixture([
+            TemplateTextBlock(text: "LEGACYSINGLELINE", x: 46, y: 762, width: 220, fontSize: 12)
+        ])
+        for mode in [AttendancePDFMode.blank, .completed] {
+            let file = FileManager.default.temporaryDirectory
+                .appendingPathComponent("nexo-legacy-free-text-\(UUID().uuidString).pdf")
+            defer { try? FileManager.default.removeItem(at: file) }
+            try AttendancePDF.render(organization: fixture.organization, event: fixture.event,
+                                     entries: [], template: fixture.template, mode: mode, to: file)
+            let extracted = try XCTUnwrap(PDFDocument(url: file)?.string)
+            XCTAssertTrue(extracted.contains("LEGACYSINGLELINE"), String(reflecting: extracted))
+        }
+    }
+
+    func testMultilineFreeTextKeepsFirstLineAnchor() throws {
+        func firstMarkerBounds(text: String, mode: AttendancePDFMode) throws -> CGRect {
+            let fixture = try validatedFreeTextFixture([
+                TemplateTextBlock(text: text, x: 46, y: 420, width: 220, fontSize: 12)
+            ])
+            let file = FileManager.default.temporaryDirectory
+                .appendingPathComponent("nexo-free-text-anchor-\(UUID().uuidString).pdf")
+            defer { try? FileManager.default.removeItem(at: file) }
+            try AttendancePDF.render(organization: fixture.organization, event: fixture.event,
+                                     entries: [], template: fixture.template, mode: mode, to: file)
+            let document = try XCTUnwrap(PDFDocument(url: file))
+            XCTAssertEqual(document.pageCount, 1)
+            let page = try XCTUnwrap(document.page(at: 0))
+            let matches = document.findString("Beginmarker", withOptions: [])
+            XCTAssertEqual(matches.count, 1, String(reflecting: document.string))
+            let bounds = try XCTUnwrap(matches.first).bounds(for: page)
+            XCTAssertFalse(bounds.isEmpty)
+            XCTAssertTrue(bounds.minX.isFinite && bounds.minY.isFinite
+                          && bounds.width.isFinite && bounds.height.isFinite)
+            return bounds
+        }
+        for mode in [AttendancePDFMode.blank, .completed] {
+            let single = try firstMarkerBounds(text: "Beginmarker", mode: mode)
+            let multiline = try firstMarkerBounds(
+                text: "Beginmarker\nSecond line\nThird line\nFourth line\nEndmarker", mode: mode)
+            // PDFKit bounds are glyph selections in lower-left-origin page coordinates.
+            // Compare the same word, not glyph edges against the text container's coordinates.
+            XCTAssertEqual(multiline.minX, single.minX, accuracy: 1)
+            XCTAssertEqual(multiline.maxY, single.maxY, accuracy: 1)
+        }
+    }
+
     func testImportSkipsSmallPagesAndChosenPageRenders() throws {
         let data = try backgroundPDF(pageSizes: [CGSize(width: 250, height: 300),
                                                  CGSize(width: 612, height: 792)])

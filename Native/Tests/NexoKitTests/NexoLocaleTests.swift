@@ -1,6 +1,11 @@
 import Testing
 @testable import NexoKit
 struct NexoLocaleTests {
+    @Test func explainsFreeTextOverflowInBothLanguages() {
+        let key = "El texto no cabe en la página. Muévelo hacia arriba, amplía su ancho o reduce su tamaño."
+        #expect(NexoLocale.translate(key, language: "es") == key)
+        #expect(NexoLocale.translate(key, language: "en") == "The text does not fit on the page. Move it up, widen it, or reduce its size.")
+    }
     @Test func choosesSupportedLanguageAndKeepsNamesLiteral() {
         #expect(NexoLocale.resolveLanguage(["es_PR", "en-US"]) == "es")
         #expect(NexoLocale.resolveLanguage(["en-GB", "es"]) == "en")
