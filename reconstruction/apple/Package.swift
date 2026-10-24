@@ -6,11 +6,20 @@ let package = Package(
     platforms: [.macOS(.v15), .iOS(.v18)],
     products: [
         .executable(name: "nexo-adapter", targets: ["NexoAdapter"]),
-        .library(name: "NexoAdapterIOS", type: .static, targets: ["NexoAdapterKit"])
+        .library(name: "NexoAdapterIOS", type: .static, targets: ["NexoAdapterKit"]),
+        .executable(name: "NexoInterfaz", targets: ["NexoInterfaz"]),
+        .executable(name: "NexoInterfazIOS", targets: ["NexoInterfazIOS"])
     ],
     targets: [
         .target(name: "NexoAdapterKit"),
         .executableTarget(name: "NexoAdapter", dependencies: ["NexoAdapterKit"]),
-        .testTarget(name: "NexoAdapterTests")
+        .target(
+            name: "NexoInterfazUI",
+            resources: [.copy("kernel.js")],
+            linkerSettings: [.linkedFramework("JavaScriptCore")]
+        ),
+        .executableTarget(name: "NexoInterfaz", dependencies: ["NexoInterfazUI", "NexoAdapterKit"]),
+        .executableTarget(name: "NexoInterfazIOS", dependencies: ["NexoInterfazUI"]),
+        .testTarget(name: "NexoAdapterTests", dependencies: ["NexoInterfazUI"])
     ]
 )

@@ -105,6 +105,60 @@ export function runInterface(directory: string, lang: 'es' | 'en'): string {
   ].join('\n\n')
 }
 
+/**
+ * One press from the window. The action names are buttons, not new rules.
+ * A second call with `attendance-read` loads the file again.
+ */
+export function pressInterface(directory: string, action: string, lang: 'es' | 'en'): string {
+  const text = copy[lang]
+  if (action === 'attendance') {
+    const attendance = area(directory, INTERFACE_AREAS.attendance)
+    runFirstJourney(attendance)
+    return section(text.attendance, describeJourney(attendance, lang))
+  }
+  if (action === 'attendance-read') {
+    return section(text.attendance, describeJourney(area(directory, INTERFACE_AREAS.attendance), lang))
+  }
+  if (action === 'document') {
+    const documents = area(directory, INTERFACE_AREAS.documents)
+    const drafts = new DocumentDraftStore(documents)
+    const fitting = draft(FITTING_NOTE)
+    drafts.saveDocument(fitting)
+    if (!drafts.exportDocument(fitting).fits) throw new DomainError('document-missing')
+    return section(text.document, documentLines(documents, lang))
+  }
+  if (action === 'volunteers') {
+    const volunteers = area(directory, INTERFACE_AREAS.volunteers)
+    runVolunteerJourney(volunteers)
+    return section(text.volunteers, `${describeVolunteers(volunteers, lang)}\n${text.quota}: ${quotaRefusal(volunteers)}`)
+  }
+  if (action === 'collaboration') {
+    const collaboration = area(directory, INTERFACE_AREAS.collaboration)
+    const portError = runCollaborationJourney(collaboration)
+    if (portError.length === 0) throw new DomainError('sync-port-silent')
+    return section(text.collaboration, describeCollaboration(collaboration, lang))
+  }
+  if (action === 'collaboration-choose') {
+    const collaboration = area(directory, INTERFACE_AREAS.collaboration)
+    const chosen = resolvePausedAlternative(collaboration, COLLABORATION.localId)
+    return section(text.collaboration, `${text.chosen}: ${chosen}\n${describeCollaboration(collaboration, lang)}`)
+  }
+  if (action === 'migration') {
+    const migration = area(directory, INTERFACE_AREAS.migration)
+    const first = writeLegacy(migration, 'origen', LEGACY.alfa, 'Persona Alfa', true)
+    const second = writeLegacy(migration, 'otro', LEGACY.beta, 'Persona Beta', false)
+    migrateLegacyFile(migration, first)
+    migrateLegacyFile(migration, second)
+    return section(text.migration, describeJourney(migration, lang))
+  }
+  if (action === 'migration-revert') {
+    const migration = area(directory, INTERFACE_AREAS.migration)
+    revertToPreviousCopy(migration)
+    return section(text.migration, `${text.reverted}\n${describeJourney(migration, lang)}`)
+  }
+  throw new DomainError('unknown-action')
+}
+
 /** Reads the same folders from another process. A refused export and a refused selection do not write. */
 export function describeInterface(directory: string, lang: 'es' | 'en'): string {
   const text = copy[lang]

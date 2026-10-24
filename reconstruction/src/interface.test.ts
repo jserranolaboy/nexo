@@ -80,9 +80,62 @@ test('the interface keeps every synthetic journey across a restart', () => {
   assert.doesNotMatch(english.stdout, /Persona Beta: present/)
 })
 
-function run(command: string, directory: string, lang: string): { status: number | null; pid: number; stdout: string; stderr: string } {
-  const result = spawnSync(process.execPath, ['--experimental-strip-types', cli, command, '--directory', directory, '--lang', lang], {
-    encoding: 'utf8',
-  })
+test('each window action calls the kernel and the second read keeps the file', () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'nexo-interfaz-'))
+  const attendance = press(home, 'attendance', 'es')
+  assert.match(attendance.stdout, /Persona Alfa: presente; 1\/1/)
+  assert.match(attendance.stdout, /Persona Beta: ausente; 0\/1/)
+  assert.match(attendance.stdout, /Persona Gamma: sin registro; sin encuentros evaluables/)
+  assert.doesNotMatch(attendance.stdout, /Persona Gamma: ausente/)
+  const bytes = readFileSync(path.join(home, INTERFACE_AREAS.attendance, 'nexo-reconstruction-v1.json'))
+  const again = press(home, 'attendance-read', 'en')
+  assert.notEqual(again.pid, attendance.pid)
+  assert.match(again.stdout, /Persona Alfa: present; 1\/1/)
+  assert.match(again.stdout, /Persona Gamma: no record; no countable encounters/)
+  assert.doesNotMatch(again.stdout, /Persona Gamma: absent/)
+  assert.deepEqual(readFileSync(path.join(home, INTERFACE_AREAS.attendance, 'nexo-reconstruction-v1.json')), bytes)
+
+  const document = press(home, 'document', 'es')
+  assert.match(document.stdout, /Borrador: Nota breve/)
+  assert.match(document.stdout, /PDF: export.pdf/)
+  assert.match(document.stdout, /No cabe: Persona Alfa\nLinea uno\nLinea dos\nLinea tres\nLinea cuatro/)
+
+  const volunteers = press(home, 'volunteers', 'es')
+  assert.match(volunteers.stdout, /Sugerencia: Persona Tardía/)
+  assert.match(volunteers.stdout, /Persona Cero: seleccionado en Encuentro actual/)
+  assert.match(volunteers.stdout, /Rechazo de cupo: capacity-exceeded/)
+
+  const collaboration = press(home, 'collaboration', 'es')
+  assert.match(collaboration.stdout, /Sincronización: en pausa/)
+  assert.match(collaboration.stdout, /Subidas pendientes: ninguna/)
+  assert.match(collaboration.stdout, /alternativa-local/)
+  assert.match(collaboration.stdout, /alternativa-remota/)
+  const chosen = press(home, 'collaboration-choose', 'en')
+  assert.match(chosen.stdout, /Alternative chosen: alternativa-local/)
+  assert.match(chosen.stdout, /Sync: paused/)
+  assert.match(chosen.stdout, /Pending uploads: none/)
+  assert.doesNotMatch(chosen.stdout, /alternativa-remota/)
+
+  const migrated = press(home, 'migration', 'es')
+  assert.match(migrated.stdout, /Persona Beta: presente/)
+  const source = readFileSync(path.join(home, INTERFACE_AREAS.migration, 'origen', 'workspace-v1.json'))
+  const reverted = press(home, 'migration-revert', 'es')
+  assert.match(reverted.stdout, /Copia nueva anterior restaurada/)
+  assert.match(reverted.stdout, /Persona Alfa: presente; 1\/1/)
+  assert.match(reverted.stdout, /Persona Gamma: sin registro/)
+  assert.doesNotMatch(reverted.stdout, /Persona Gamma: ausente/)
+  assert.doesNotMatch(reverted.stdout, /Persona Beta: presente/)
+  assert.deepEqual(readFileSync(path.join(home, INTERFACE_AREAS.migration, 'origen', 'workspace-v1.json')), source)
+})
+
+function press(directory: string, action: string, lang: string): { status: number | null; pid: number; stdout: string; stderr: string } {
+  return run('interface-press', directory, lang, action)
+}
+
+function run(command: string, directory: string, lang: string, action = ''): { status: number | null; pid: number; stdout: string; stderr: string } {
+  const args = ['--experimental-strip-types', cli, command, '--directory', directory, '--lang', lang]
+  if (action) args.push('--action', action)
+  const result = spawnSync(process.execPath, args, { encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stderr)
   return { status: result.status, pid: result.pid ?? 0, stdout: result.stdout, stderr: result.stderr }
 }

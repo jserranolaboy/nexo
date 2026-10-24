@@ -5,6 +5,7 @@ Este archivo manda dentro de `reconstruction/`. El `AGENTS.md` de la raíz remit
 - El núcleo de este directorio es la autoridad de las reglas nuevas.
 - No edites `Core`, `Native`, `Web` ni `iOS` para repetir una regla de este núcleo.
 - `apple/` es el adaptador. Reenvía el comando al núcleo y no copia las reglas. Solo escribe en un directorio temporal sintético. `NexoAdapterIOS` compila la misma orden para el simulador y no la ejecuta.
+- La ventana de Mac y la pantalla de iPhone e iPad llaman a este núcleo. En iOS el paquete corre dentro de la app, en JavaScriptCore, y los archivos van a un directorio temporal del simulador. El puente de archivos no tiene reglas de dominio.
 - No leas Application Support, espacios reales, cuentas ni OAuth. No leas ni implementes `vrr-data.json`. Un `workspace-v1.json` solo se lee si la ruta es explícita y sintética, y no se reescribe. Si la migración no comprueba, no sustituyas `nexo-reconstruction-v1.json` por un archivo vacío.
 - Los instantes van en UTC canónico. No fijes `America/Puerto_Rico` ni otra zona como regla de producto.
 - La zona del espacio es un dato. La pertenencia a un período compara instantes en un intervalo semiabierto.

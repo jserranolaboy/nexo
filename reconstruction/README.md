@@ -70,6 +70,14 @@ node --experimental-strip-types src/cli.ts interface --directory /tmp/nexo-inter
 node --experimental-strip-types src/cli.ts interface-show --directory /tmp/nexo-interfaz --lang en
 ```
 
+## Ventana
+
+Mac abre una ventana. iPhone e iPad abren la misma pantalla en el simulador. Los botones llaman a `interface-press`. En Mac eso usa el núcleo local. En iOS el mismo núcleo va empaquetado en `apple/Sources/NexoInterfazUI/kernel.js` y corre en JavaScriptCore; no usa Node del sistema ni el ejecutable de Mac. El directorio es temporal.
+
+```sh
+node scripts/bundle-kernel.mjs
+```
+
 ## Adaptador de Mac
 
 `apple/` no tiene reglas de dominio. El ejecutable `nexo-adapter` reenvía el comando, `--source` y `--version` a `src/cli.ts`. Un proceso ejecuta `interface` y otro `interface-show`. El directorio es temporal y los datos son los sintéticos del núcleo. No abre Application Support, no firma con Developer ID y no publica.

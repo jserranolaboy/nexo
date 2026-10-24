@@ -15,7 +15,7 @@ public struct KernelCommand: Sendable {
 }
 
 public enum NexoAdapterKit {
-    public static let usage = "Uso: nexo-adapter COMANDO --directory DIR --kernel DIR [--node PATH] [--lang es|en] [--source PATH] [--version ID]"
+    public static let usage = "Uso: nexo-adapter COMANDO --directory DIR --kernel DIR [--node PATH] [--lang es|en] [--source PATH] [--version ID] [--action ACTION]"
 
     public static func command(_ arguments: [String]) throws -> KernelCommand {
         let invocation = try parse(arguments)
@@ -33,6 +33,7 @@ public enum NexoAdapterKit {
         ]
         if !invocation.source.isEmpty { forwarded.append(contentsOf: ["--source", invocation.source]) }
         if !invocation.version.isEmpty { forwarded.append(contentsOf: ["--version", invocation.version]) }
+        if !invocation.action.isEmpty { forwarded.append(contentsOf: ["--action", invocation.action]) }
         return KernelCommand(
             node: invocation.node,
             arguments: forwarded,
@@ -49,6 +50,7 @@ private struct Invocation {
     var lang: String
     var source: String
     var version: String
+    var action: String
 }
 
 private func parse(_ arguments: [String]) throws -> Invocation {
@@ -61,6 +63,7 @@ private func parse(_ arguments: [String]) throws -> Invocation {
     var lang = "es"
     var source = ""
     var version = ""
+    var action = ""
     var index = 1
     while index < arguments.count {
         let token = arguments[index]
@@ -75,6 +78,7 @@ private func parse(_ arguments: [String]) throws -> Invocation {
         case "--lang": lang = value
         case "--source": source = value
         case "--version": version = value
+        case "--action": action = value
         default: throw AdapterError(NexoAdapterKit.usage)
         }
     }
@@ -88,7 +92,8 @@ private func parse(_ arguments: [String]) throws -> Invocation {
         node: try resolveNode(node),
         lang: lang,
         source: source,
-        version: version
+        version: version,
+        action: action
     )
 }
 
