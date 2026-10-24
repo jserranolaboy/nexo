@@ -175,6 +175,12 @@ function Roll({
     [saving, setSaving] = useState<ID | null>(null),
     [focus, setFocus] = useState(0),
     [limit, setLimit] = useState(80)
+  const markPending = useRef(false),
+    navigationVersion = useRef(0)
+  const moveFocus = (next: number | ((current: number) => number)) => {
+    navigationVersion.current++
+    setFocus(next)
+  }
   const all = useMemo(() => s.attendance.filter((a) => a.eventID === event.id), [s.attendance, event.id])
   const rows = all.filter((a) => !a.isVoided)
   const counts = attendanceCounts(all)
@@ -191,11 +197,16 @@ function Roll({
       (filter === 'excluded' ? a.isVoided : !a.isVoided && (filter === 'all' || a.status === filter)) &&
       (!key || searchKey(attendanceName(s, a)).includes(key)),
   )
+  useLayoutEffect(() => {
+    setFocus((current) => Math.max(0, Math.min(current, visible.length - 1)))
+  }, [visible.length])
+  useLayoutEffect(() => () => { navigationVersion.current++ }, [event.id])
   const locked = event.isCancelled
-  const set = async (row: Attendance, status: Status, toggle = true) => {
-    if (locked || row.isVoided || saving) return
+  const set = async (row: Attendance, status: Status, toggle = true): Promise<boolean> => {
+    if (locked || row.isVoided || markPending.current) return false
     const next = row.status === status ? (toggle ? 'pending' : status) : status
-    if (next === row.status) return
+    if (next === row.status) return false
+    markPending.current = true
     setSaving(row.memberID)
     selectionFeedback()
     try {
@@ -203,9 +214,12 @@ function Roll({
       notify(`${attendanceName(s, row)} · ${next === 'pending' ? tr('Por registrar') : statusLabels[next]}`, false, () =>
         void mutate({ kind: 'attendance', eventID: event.id, memberID: row.memberID, status: row.status, expectedStatus: next }).catch(() => {}),
       )
+      return true
     } catch {
       /* The workspace already shows the error. */
+      return false
     } finally {
+      markPending.current = false
       setSaving(null)
     }
   }
@@ -223,14 +237,17 @@ function Roll({
       const row = visible[Math.min(focus, visible.length - 1)]
       if (e.key === 'ArrowDown' || e.key === 'j') {
         e.preventDefault()
-        setFocus((f) => Math.min(visible.length - 1, f + 1))
+        moveFocus((f) => Math.max(0, Math.min(visible.length - 1, f + 1)))
       } else if (e.key === 'ArrowUp' || e.key === 'k') {
         e.preventDefault()
-        setFocus((f) => Math.max(0, f - 1))
+        moveFocus((f) => Math.max(0, f - 1))
       } else if (row && ['1', '2', '3'].includes(e.key)) {
         e.preventDefault()
-        void set(row, marks[Number(e.key) - 1].status).then(() => {
-          if (filter === 'pending') return
+        const version = navigationVersion.current
+        void set(row, marks[Number(e.key) - 1].status).then((committed) => {
+          // Failed/refused writes must keep the same person ready for retry.
+          // A changed status already removes the row from a status-filtered list.
+          if (!committed || version !== navigationVersion.current || filter !== 'all') return
           setFocus((f) => Math.min(visible.length - 1, f + 1))
         })
       } else if (row && e.key === 'Enter') setRecord(row.memberID)
@@ -278,7 +295,7 @@ function Roll({
               className={`nx-tally-count ${value}`}
               onClick={() => {
                 setFilter(filter === value && value !== 'all' ? 'all' : value)
-                setFocus(0)
+                moveFocus(0)
               }}
             >
               <b>{n}</b>
@@ -298,7 +315,7 @@ function Roll({
               aria-label={tr('Buscar en la lista')}
               onChange={(e) => {
                 setQuery(e.target.value)
-                setFocus(0)
+                moveFocus(0)
               }}
             />
           </label>
@@ -330,7 +347,7 @@ function Roll({
         {!visible.length && (
           <div className="nx-empty small">
             <p>{filter === 'pending' && !query ? tr('Todo registrado') : tr('Sin coincidencias')}</p>
-            <button className="nx-link" onClick={() => (setFilter('all'), setQuery(''))}>
+            <button className="nx-link" onClick={() => (setFilter('all'), setQuery(''), moveFocus(0))}>
               {tr('Ver toda la lista')}
             </button>
           </div>
@@ -342,7 +359,7 @@ function Roll({
         </button>
       )}
       {all.some((a) => a.isVoided) && filter !== 'excluded' && (
-        <button className="nx-link subtle" onClick={() => setFilter('excluded')}>
+        <button className="nx-link subtle" onClick={() => (setFilter('excluded'), moveFocus(0))}>
           {tr('Fuera de la lista ({0})', all.filter((a) => a.isVoided).length)}
         </button>
       )}

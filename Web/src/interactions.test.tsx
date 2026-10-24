@@ -3276,3 +3276,244 @@ describe('Legacy volunteer capacity repairs and cancelled-event parity', () => {
     expect(s).toEqual(before)
   })
 })
+
+function attendanceKeyboardHarness(
+  mutate: ReturnType<typeof vi.fn<(action: Parameters<typeof simulateAction>[1]) => Promise<ReturnType<typeof fixture> | void>>>,
+  memberCount = 3,
+  applySnapshot = false,
+) {
+  let s = fixture()
+  const names = ['Ana', 'Bea', 'Cora', ...Array.from({ length: Math.max(0, memberCount - 3) }, (_, i) => `Extra ${i}`)]
+  s.members = names.map((name, index) => ({
+    id: `member-${index}`, organizationID: 'org', name, isActive: true,
+  }))
+  s.attendance = s.members.map((member, index) => ({
+    id: `row-${index}`, eventID: 'event', memberID: member.id,
+    status: 'pending', isVoided: false, note: '',
+  }))
+  const notify = vi.fn()
+  test.context = { mutate: applySnapshot ? async (action: Parameters<typeof simulateAction>[1]) => {
+    s = await mutate(action) as ReturnType<typeof fixture>
+    return s
+  } : mutate, notify }
+  const eventHooks = new test.Hooks(), rollHooks = new test.Hooks()
+  const render = () => {
+    const event = eventHooks.render(() => EventView({
+      s, event: s.events[0], edit: vi.fn(), document: vi.fn(), openMember: vi.fn(),
+    }))
+    return rollHooks.render(() => invoke(component(event, 'Roll')))
+  }
+  const focused = () => {
+    try {
+      return find(render(), e =>
+        typeof e.type === 'function' && e.type.name === 'RollRow' && e.props.focused,
+      ).props.row.memberID
+    } catch { return null }
+  }
+  const press = (key: string) => window.dispatchEvent(Object.assign(
+    new Event('keydown', { cancelable: true }), { key },
+  ))
+  render()
+  return { get s() { return s }, mutate, notify, render, focused, press }
+}
+
+describe('Attendance keyboard retains the current person after a refused or failed mark', () => {
+  it('does not advance or write when the event is cancelled', async () => {
+    const r = attendanceKeyboardHarness(vi.fn().mockResolvedValue(fixture()))
+    r.s.events[0].isCancelled = true
+    r.render()
+    r.press('1')
+    await flush()
+    expect(r.mutate).not.toHaveBeenCalled()
+    expect(r.focused()).toBe('member-0')
+  })
+
+  it('does not advance or write when the focused record is excluded', async () => {
+    const r = attendanceKeyboardHarness(vi.fn().mockResolvedValue(fixture()))
+    r.s.attendance.forEach(row => { row.isVoided = true })
+    find(r.render(), e => e.type === 'button' && e.props.className === 'nx-link subtle').props.onClick()
+    r.render()
+    r.press('1')
+    await flush()
+    expect(r.mutate).not.toHaveBeenCalled()
+    expect(r.focused()).toBe('member-0')
+  })
+
+  it('keeps the failed person focused and pending so the operator can retry', async () => {
+    const r = attendanceKeyboardHarness(vi.fn().mockRejectedValue(new Error('Synthetic save failure')))
+    expect(r.focused()).toBe('member-0')
+    r.press('1')
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.mutate).toHaveBeenCalledWith({
+      kind: 'attendance', eventID: 'event', memberID: 'member-0', status: 'present', expectedStatus: 'pending',
+    })
+    expect(r.s.attendance[0].status).toBe('pending')
+    expect(r.notify).not.toHaveBeenCalled()
+    expect(r.focused()).toBe('member-0')
+  })
+
+  it('does not advance for a keyboard mark refused while another mark is pending', async () => {
+    let resolve!: () => void
+    const r = attendanceKeyboardHarness(vi.fn(() => new Promise<void>(done => { resolve = done })))
+    r.press('1')
+    r.render() // Commit the visible saving state before the second key.
+    r.press('2')
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.focused()).toBe('member-0')
+    resolve()
+    await flush()
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('advances exactly one person for a successful mark', async () => {
+    const r = attendanceKeyboardHarness(vi.fn().mockResolvedValue(fixture()))
+    r.press('1')
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.notify).toHaveBeenCalledOnce()
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('preserves successful marking and its expected-status Undo action', async () => {
+    const mutate = vi.fn(async (action: Parameters<typeof simulateAction>[1]) => simulateAction(r.s, action))
+    const r = attendanceKeyboardHarness(mutate, 3, true)
+    r.press('3')
+    await flush()
+    expect(r.s.attendance[0].status).toBe('excused')
+    expect(r.focused()).toBe('member-1')
+    expect(r.notify.mock.calls[0][0]).toContain('Ana')
+    expect(r.notify.mock.calls[0][1]).toBe(false)
+    await r.notify.mock.calls[0][2]()
+    await flush()
+    expect(r.mutate).toHaveBeenLastCalledWith({
+      kind: 'attendance', eventID: 'event', memberID: 'member-0', status: 'pending', expectedStatus: 'excused',
+    })
+    expect(r.s.attendance[0].status).toBe('pending')
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('retries the same person after failure instead of silently marking the next row', async () => {
+    const r = attendanceKeyboardHarness(vi.fn()
+      .mockRejectedValueOnce(new Error('Synthetic save failure'))
+      .mockResolvedValueOnce(fixture()))
+    r.press('1')
+    await flush()
+    r.render()
+    r.press('1')
+    await flush()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    expect(r.mutate.mock.calls.map(([action]) => action.memberID)).toEqual(['member-0', 'member-0'])
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('does not double-advance when the original pending mark finally succeeds', async () => {
+    let resolve!: () => void
+    const r = attendanceKeyboardHarness(vi.fn(() => new Promise<void>(done => { resolve = done })))
+    r.press('1')
+    r.render()
+    r.press('2')
+    await flush()
+    resolve()
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('keeps the existing no-explicit-advance behavior in the pending filter', async () => {
+    const r = attendanceKeyboardHarness(vi.fn().mockResolvedValue(fixture()))
+    find(r.render(), e => e.type === 'button' && e.props.className === 'nx-tally-count pending').props.onClick()
+    r.render()
+    r.press('1')
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.focused()).toBe('member-0')
+  })
+
+  it('synchronously accepts only one keyboard mark before rerender', async () => {
+    let resolve!: () => void
+    const pending = new Promise<void>(done => { resolve = done })
+    const r = attendanceKeyboardHarness(vi.fn(() => pending))
+    r.press('1')
+    r.press('1')
+    resolve()
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('does not override ArrowDown navigation when an earlier mark completes', async () => {
+    let resolve!: () => void
+    const r = attendanceKeyboardHarness(vi.fn(() => new Promise<void>(done => { resolve = done })))
+    r.press('1')
+    r.render()
+    r.press('ArrowDown')
+    expect(r.focused()).toBe('member-1')
+    resolve()
+    await flush()
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('does not override a newer pending-filter choice when an earlier mark completes', async () => {
+    let resolve!: () => void
+    const r = attendanceKeyboardHarness(vi.fn(() => new Promise<void>(done => { resolve = done })))
+    r.press('1')
+    find(r.render(), e => e.type === 'button' && e.props.className === 'nx-tally-count pending').props.onClick()
+    expect(r.focused()).toBe('member-0')
+    resolve()
+    await flush()
+    expect(r.focused()).toBe('member-0')
+  })
+
+  it('does not move focus away from a newer search result when an earlier mark completes', async () => {
+    let resolve!: () => void
+    const r = attendanceKeyboardHarness(vi.fn(() => new Promise<void>(done => { resolve = done })), 12)
+    r.press('1')
+    find(r.render(), e => e.type === 'input' && e.props.type === 'search').props.onChange({ target: { value: 'Bea' } })
+    expect(r.focused()).toBe('member-1')
+    resolve()
+    await flush()
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('keeps the next remaining person focused after a mark leaves the present filter', async () => {
+    const mutate = vi.fn(async (action: Parameters<typeof simulateAction>[1]) => simulateAction(r.s, action))
+    const r = attendanceKeyboardHarness(mutate, 3, true)
+    r.s.attendance.forEach(row => { row.status = 'present' })
+    find(r.render(), e => e.type === 'button' && e.props.className === 'nx-tally-count present').props.onClick()
+    expect(r.focused()).toBe('member-0')
+    r.press('2')
+    await flush()
+    expect(r.s.attendance[0].status).toBe('absent')
+    expect(r.s.attendance[1].status).toBe('present')
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('clamps the highlight to the remaining row when the final filtered person is removed', async () => {
+    const mutate = vi.fn(async (action: Parameters<typeof simulateAction>[1]) => simulateAction(r.s, action))
+    const r = attendanceKeyboardHarness(mutate, 3, true)
+    r.s.attendance.forEach(row => { row.status = 'present' })
+    find(r.render(), e => e.type === 'button' && e.props.className === 'nx-tally-count present').props.onClick()
+    r.render()
+    r.press('ArrowDown')
+    r.render()
+    r.press('ArrowDown')
+    expect(r.focused()).toBe('member-2')
+    r.press('2')
+    await flush()
+    expect(r.s.attendance[2].status).toBe('absent')
+    expect(r.focused()).toBe('member-1')
+  })
+
+  it('preserves next-person targeting in the pending filter after a committed snapshot removes the row', async () => {
+    const mutate = vi.fn(async (action: Parameters<typeof simulateAction>[1]) => simulateAction(r.s, action))
+    const r = attendanceKeyboardHarness(mutate, 3, true)
+    find(r.render(), e => e.type === 'button' && e.props.className === 'nx-tally-count pending').props.onClick()
+    r.render()
+    r.press('1')
+    await flush()
+    expect(r.s.attendance[0].status).toBe('present')
+    expect(r.focused()).toBe('member-1')
+  })
+})
