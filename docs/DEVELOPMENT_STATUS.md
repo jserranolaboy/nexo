@@ -62,6 +62,8 @@ Validation on Linux with Node 24.22.1 and the pinned pnpm 11.19.0: **195 web tes
 
 Swift, Xcode, and Apple UI runtimes are unavailable in this cloud environment. The historical Core/Native/macOS/iOS results above were not repeated here. No installed app, user workspace, Drive account, prerelease, or stable release was modified. The later installer staging/backup/rollback work remains uncommitted on the offline Mac and has **not** been recovered into this checkout; reconcile it separately before installer integration. Native export/PDF, final package, actual Sequoia and physical-device verification remain pending.
 
+The [web CI workflow](../.github/workflows/web-ci.yml) repeats the existing locked install, tests, build, and locale check on a standard GitHub-hosted Ubuntu runner. It uses pinned official actions and Node, the existing pinned pnpm, read-only token permissions, and no persisted checkout credentials, deployment, secrets, or live accounts. PR merge-result and development-branch head checks remain distinct. Hosted results must be verified for the exact commit; the configuration itself does not establish a pass or any native/runtime coverage.
+
 ## Remaining findings and next work
 
 | Priority | Finding | Why it remains |

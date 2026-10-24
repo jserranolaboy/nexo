@@ -13,6 +13,14 @@ The current client is organized into `Core`, `Native`, `Web`, and `iOS`. See the
 
 Run pnpm from `Web` to use the version pinned in `packageManager`. You do not need to install the app to build or run the local suites.
 
+### Web CI
+
+[Web CI](.github/workflows/web-ci.yml) runs the frozen-lockfile install, web tests, TypeScript/production build, and locale synchronization check on a standard Ubuntu runner with Node 24.22.1 and the pnpm version in `Web/package.json`. It does not build or test Swift, Apple UI, native PDF rendering, or an installer.
+
+Pull requests targeting `main` test the proposed merge result; development-branch pushes test the exact branch head. Both can run for an open PR because they validate different source trees. Superseded runs within each event/ref are canceled. Actions are pinned to reviewed official release commits, token permissions are read-only, and checkout credentials are not persisted. No deployment, secret, environment, persistent package cache, or live account is configured.
+
+Read the checks and logs for the specific commit before reporting CI success. Defining a workflow or passing local tests is not evidence of a successful hosted run.
+
 ## Data and publication
 
 Do not include real people, attendance records, institutional templates, credentials, exports, or account screenshots in code, issues, or shared changes. Remote synchronization, permissions, and new network calls need an explicit product decision.
