@@ -1,7 +1,6 @@
 // Real DOM smoke for the built, in-memory browser demo. No native bridge or accounts.
 // Requires an installed Chrome/ChromeDriver pair; never downloads a browser or disables its sandbox.
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { access } from 'node:fs/promises'
 import { createServer } from 'node:net'
@@ -9,6 +8,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { installRecoveryFixture } from './browser-recovery-fixture.mjs'
+import { startSmokeProcess, stopSmokeProcess } from './smoke-process.mjs'
 
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '../Web')
 const site = 'http://127.0.0.1:4173'
@@ -33,12 +33,7 @@ async function unusedPort(port) {
 }
 
 function start(command, args) {
-  const child = spawn(command, args, { cwd: web, stdio: ['ignore', 'pipe', 'pipe'] })
-  const owned = { child, output: '', error: null }
-  for (const stream of [child.stdout, child.stderr]) {
-    stream.on('data', (data) => { owned.output = (owned.output + data).slice(-12_000) })
-  }
-  child.on('error', (error) => { owned.error = error })
+  const owned = startSmokeProcess(command, args, web)
   children.push(owned)
   return owned
 }
@@ -124,18 +119,6 @@ async function focused(selector) {
 async function closedRecord() {
   await until('attendance dialog removed', () => observe('return document.querySelectorAll("[role=dialog]").length === 0'))
   await focused(record)
-}
-
-async function terminate(owned) {
-  const { child } = owned
-  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return
-  const exited = once(child, 'exit').catch(() => {})
-  child.kill('SIGTERM')
-  await Promise.race([exited, delay(2_000)])
-  if (child.exitCode === null && child.signalCode === null) {
-    child.kill('SIGKILL')
-    await Promise.race([exited, delay(2_000)])
-  }
 }
 
 try {
@@ -272,7 +255,12 @@ try {
     try { await request(`/session/${sessionID}`, 'DELETE', undefined, true) }
     catch (error) { console.error('Session cleanup failed:', error.message); process.exitCode = 1 }
   }
-  await Promise.all(children.map(terminate))
+  for (const result of await Promise.allSettled(children.map(stopSmokeProcess))) {
+    if (result.status === 'rejected') {
+      console.error('Process cleanup failed:', result.reason)
+      process.exitCode = 1
+    }
+  }
   process.off('SIGINT', interrupt)
   process.off('SIGTERM', interrupt)
 }
