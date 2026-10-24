@@ -1,6 +1,7 @@
-import { createSpace, linkCollaboration, recordAlternative } from './commands.ts'
+import { chooseAlternative, createSpace, linkCollaboration, recordAlternative } from './commands.ts'
 import { DomainError } from './errors.ts'
 import { emptyWorkspace, type Workspace } from './model.ts'
+import { canonicalId } from './ids.ts'
 import { commit, FileWorkspaceStore } from './store.ts'
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -75,6 +76,35 @@ export function runCollaborationJourney(directory: string, port: SyncPort = unav
   if (!link.paused || link.pendingUploads.length !== pendingBefore) throw new DomainError('upload-enqueued')
   if (!kept(restored, both)) throw new DomainError('alternatives-overwritten')
   return first.collaborationError
+}
+
+/**
+ * Keeps one alternative in the active file. While sync is paused, the upload queue stays as it was.
+ * There is no sync port, account, or folder.
+ */
+export function resolvePausedAlternative(directory: string, versionId: string): string {
+  const store = new FileWorkspaceStore(directory)
+  const current = store.load()
+  const chosenId = canonicalId(versionId)
+  const link = current.collaboration.find((item) =>
+    item.entries.some((entry) => entry.versions.some((version) => canonicalId(version.id) === chosenId)),
+  )
+  if (!link) throw new DomainError('missing-alternative')
+  if (!link.paused) throw new DomainError('sync-not-paused')
+  const entry = link.entries.find((item) => item.versions.some((version) => canonicalId(version.id) === chosenId))
+  if (!entry) throw new DomainError('missing-alternative')
+  const next = chooseAlternative(current, { spaceId: link.spaceId, key: entry.key, versionId: chosenId })
+  const drafted = next.collaboration.find((item) => item.spaceId === link.spaceId)
+  const versions = drafted?.entries.find((item) => item.key === entry.key)?.versions ?? []
+  const chosen = versions[0]
+  const sameQueue =
+    drafted !== undefined &&
+    drafted.pendingUploads.length === link.pendingUploads.length &&
+    drafted.pendingUploads.every((item, index) => item === link.pendingUploads[index])
+  if (!chosen || versions.length !== 1 || chosen.id !== chosenId || !sameQueue) throw new DomainError('upload-enqueued')
+  const saved = store.save(next, current.revision)
+  if (saved.revision !== current.revision + 1) throw new DomainError('revision-stalled')
+  return chosen.value
 }
 
 export function describeCollaboration(directory: string, lang: 'es' | 'en'): string {

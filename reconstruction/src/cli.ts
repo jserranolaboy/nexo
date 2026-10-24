@@ -1,16 +1,20 @@
-import { describeCollaboration, runCollaborationJourney } from './collaboration-journey.ts'
+import { describeCollaboration, resolvePausedAlternative, runCollaborationJourney } from './collaboration-journey.ts'
 import { describeJourney, runFirstJourney } from './journey.ts'
 
 const messages = {
   es: {
-    usage: 'Uso: journey | collaborate | show | collaborate-show --directory DIR [--lang es|en]',
+    usage:
+      'Uso: journey | collaborate | show | collaborate-show --directory DIR [--lang es|en] | collaborate-choose --directory DIR --version ID [--lang es|en]',
     saved: 'Espacio sintético guardado. La asistencia queda en el archivo local.',
     kept: 'Guardado local conservado. El puerto de sincronización falló después.',
+    chosen: 'Alternativa elegida. La otra queda fuera del archivo activo.',
   },
   en: {
-    usage: 'Usage: journey | collaborate | show | collaborate-show --directory DIR [--lang es|en]',
+    usage:
+      'Usage: journey | collaborate | show | collaborate-show --directory DIR [--lang es|en] | collaborate-choose --directory DIR --version ID [--lang es|en]',
     saved: 'Synthetic space saved. Attendance remains in the local file.',
     kept: 'Local save kept. The sync port failed afterwards.',
+    chosen: 'Alternative chosen. The other is out of the active file.',
   },
 } as const
 
@@ -29,18 +33,28 @@ if (!parsed.command || !parsed.directory) {
   process.stdout.write(`${copy.kept} ${portError}\n`)
 } else if (parsed.command === 'collaborate-show') {
   process.stdout.write(`${describeCollaboration(parsed.directory, parsed.lang)}\n`)
+} else if (parsed.command === 'collaborate-choose') {
+  if (!parsed.version) {
+    process.stderr.write(`${copy.usage}\n`)
+    process.exitCode = 1
+  } else {
+    const value = resolvePausedAlternative(parsed.directory, parsed.version)
+    process.stdout.write(`${copy.chosen} ${value}\n`)
+  }
 } else {
   process.stderr.write(`${copy.usage}\n`)
   process.exitCode = 1
 }
 
-function parse(argv: string[]): { command: string; directory: string; lang: 'es' | 'en' } {
+function parse(argv: string[]): { command: string; directory: string; lang: 'es' | 'en'; version: string } {
   let directory = ''
+  let version = ''
   let lang: 'es' | 'en' = 'es'
   const command = argv[0] ?? ''
   for (let index = 1; index < argv.length; index += 1) {
     const token = argv[index]
     if (token === '--directory') directory = argv[(index += 1)] ?? ''
+    else if (token === '--version') version = argv[(index += 1)] ?? ''
     else if (token === '--lang') {
       const value = argv[(index += 1)]
       if (value !== 'es' && value !== 'en') throw new Error('unsupported language')
@@ -49,5 +63,5 @@ function parse(argv: string[]): { command: string; directory: string; lang: 'es'
       throw new Error(`unknown argument ${token}`)
     }
   }
-  return { command, directory, lang }
+  return { command, directory, lang, version }
 }
