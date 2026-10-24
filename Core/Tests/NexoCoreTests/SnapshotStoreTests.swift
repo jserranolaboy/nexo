@@ -176,4 +176,103 @@ final class SnapshotStoreTests: XCTestCase {
         XCTAssertEqual(after.suffix(50), before.suffix(50))
         XCTAssertEqual(try store.load().organizations.count, 40)
     }
+
+    func testInitializeRefusesIntervalsInvalidAfterSerializationWithoutWritingPrimary() throws {
+        for membership in [false, true] {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let store = SnapshotStore(directory: directory)
+            let proposed = codecIntervalFixture(membership: membership, startOffset: 0.125, endOffset: 0.875)
+            try WorkspaceRules.validate(proposed)
+            XCTAssertThrowsError(try store.initialize(proposed), "membership=\(membership)") { error in
+                XCTAssertEqual(error as? WorkspaceValidationError,
+                               membership ? .brokenRelationship : .invalidPeriod)
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: store.primaryURL.path))
+            XCTAssertTrue(try store.availableBackups().isEmpty)
+        }
+    }
+
+    func testSaveRefusesIntervalsInvalidAfterSerializationAndPreservesEverySavedByte() throws {
+        for membership in [false, true] {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let store = SnapshotStore(directory: directory)
+            try store.initialize()
+            let current = try store.save(store.load(), expectedRevision: 0)
+            let primary = try Data(contentsOf: store.primaryURL)
+            let backups = try codecBackupBytes(store)
+            XCTAssertEqual(backups.count, 2)
+            var proposed = codecIntervalFixture(membership: membership, startOffset: 0.125, endOffset: 0.875)
+            proposed.revision = current.revision
+            try WorkspaceRules.validate(proposed)
+            XCTAssertThrowsError(try store.save(proposed, expectedRevision: current.revision),
+                                 "membership=\(membership)") { error in
+                XCTAssertEqual(error as? WorkspaceValidationError,
+                               membership ? .brokenRelationship : .invalidPeriod)
+            }
+            XCTAssertEqual(try Data(contentsOf: store.primaryURL), primary)
+            XCTAssertEqual(try codecBackupBytes(store), backups)
+            XCTAssertEqual(try store.load(), current)
+        }
+    }
+
+    func testRepresentableIntervalsStillInitializeSaveAndReloadWithExistingDateEncoding() throws {
+        for membership in [false, true] {
+            for fractional in [false, true] {
+                let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                defer { try? FileManager.default.removeItem(at: directory) }
+                let store = SnapshotStore(directory: directory)
+                let initial = codecIntervalFixture(membership: membership,
+                                                   startOffset: fractional ? 0.125 : 0,
+                                                   endOffset: fractional ? 1.875 : 1)
+                try WorkspaceRules.validate(initial)
+                // Existing whole-second encoding remains unchanged, not made lossless.
+                var expected = initial
+                let base = Date(timeIntervalSince1970: 1_790_000_000)
+                if membership {
+                    expected.memberships[0].startsAt = base
+                    expected.memberships[0].endsAt = base.addingTimeInterval(1)
+                } else {
+                    expected.periods[0].startsAt = base
+                    expected.periods[0].endsAt = base.addingTimeInterval(1)
+                }
+                try store.initialize(initial)
+                XCTAssertEqual(try store.load(), expected)
+                var proposed = initial
+                proposed.organizations[0].name = "Updated synthetic interval"
+                let saved = try store.save(proposed, expectedRevision: initial.revision)
+                expected.organizations[0].name = proposed.organizations[0].name
+                expected.revision = saved.revision
+                XCTAssertEqual(try store.load(), expected)
+                XCTAssertEqual(try store.availableBackups().count, 2)
+            }
+        }
+    }
+
+    private func codecIntervalFixture(membership: Bool, startOffset: TimeInterval, endOffset: TimeInterval) -> WorkspaceSnapshot {
+        let base = Date(timeIntervalSince1970: 1_790_000_000)
+        let start = base.addingTimeInterval(startOffset)
+        let end = base.addingTimeInterval(endOffset)
+        let organization = Organization(name: "Synthetic interval")
+        var snapshot = WorkspaceSnapshot()
+        snapshot.organizations = [organization]
+        if membership {
+            let member = Member(organizationID: organization.id, name: "Synthetic person")
+            let group = MemberGroup(organizationID: organization.id, name: "Synthetic group")
+            snapshot.members = [member]; snapshot.groups = [group]
+            snapshot.memberships = [GroupMembership(memberID: member.id, groupID: group.id,
+                                                     startsAt: start, endsAt: end)]
+        } else {
+            snapshot.periods = [WorkPeriod(organizationID: organization.id, name: "Synthetic period",
+                                           startsAt: start, endsAt: end)]
+        }
+        return snapshot
+    }
+
+    private func codecBackupBytes(_ store: SnapshotStore) throws -> [URL: Data] {
+        var result: [URL: Data] = [:]
+        for url in try store.availableBackups() { result[url] = try Data(contentsOf: url) }
+        return result
+    }
 }
