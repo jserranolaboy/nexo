@@ -25,7 +25,6 @@ jobs:
         shell: bash
         working-directory: Web
     env:
-      COREPACK_HOME: ${{ runner.temp }}/nexo-corepack
       COREPACK_DEFAULT_TO_LATEST: '0'
     steps:
       - name: Check out source
@@ -38,6 +37,9 @@ jobs:
         with:
           node-version: '24.22.1'
           package-manager-cache: false
+
+      - name: Configure temporary Corepack storage
+        run: echo "COREPACK_HOME=$RUNNER_TEMP/nexo-corepack" >> "$GITHUB_ENV"
 
       - name: Report toolchain
         run: |
