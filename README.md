@@ -14,9 +14,25 @@ Nexo connects your organization's calendar with its people, attendance records, 
 
 ## Open source, actively developing
 
-Nexo is **open-source software under the MIT license**. The development source version is **0.4.1 (11), unreleased**. One shared interface serves Mac, iPhone, and iPad, with native storage and document features. The [0.4.0 source preview](https://github.com/jserranolaboy/nexo/releases/tag/v0.4.0-preview.1) remains available at its tested commit.
+Nexo is **open-source software under the MIT license**. The current source version is **0.4.1 (12)**. One shared interface serves Mac, iPhone, and iPad, with native storage and document features. The [experimental Mac preview](https://github.com/jserranolaboy/nexo/releases/tag/v0.4.1-preview.2) is pinned to commit `af263a20e1e4dec2448a1b528ed949a4c9955a60`; later development commits are not automatically included in that download.
 
-This is a source-code release. Native visual review of the current build, execution on an actual Sequoia Mac, and preparation of a signed/notarized distribution remain pending. Requirements, completed checks, and limitations are detailed below. VRR was the earlier prototype; its releases and cask do not install the current Nexo client and are not included in this snapshot.
+VRR was the earlier prototype. Its releases and cask do not install the current Nexo client. Historical source previews remain available, but are separate from the current Nexo disk image and tap.
+
+## Experimental Mac downloads
+
+[Download the universal Mac disk image](https://github.com/jserranolaboy/nexo/releases/download/v0.4.1-preview.2/Nexo-0.4.1-12-universal.dmg) for macOS 15 or later, on Apple Silicon or Intel. The [release page](https://github.com/jserranolaboy/nexo/releases/tag/v0.4.1-preview.2) also provides `SHA256SUMS` and `build-info.json`; verify the downloaded files against them before use.
+
+**This preview is ad-hoc signed, not Developer ID signed or notarized.** Gatekeeper may block the downloaded app. Neither the disk image nor the cask disables those protections; a matching checksum does not establish Gatekeeper approval. End-user installation and replacement of an existing installation are not yet validated.
+
+For manual installation, close Nexo, keep an independent workspace backup, open the disk image and drag `Nexo.app` to Applications. No Google OAuth configuration is bundled.
+
+The [Nexo Homebrew tap](https://github.com/jserranolaboy/homebrew-nexo) offers the same checksum-pinned preview:
+
+```sh
+brew install --cask jserranolaboy/nexo/nexo@preview
+```
+
+Review the cask and its signing caveat before running the command. The tap does not bypass Gatekeeper or remove workspace data. Its full new-cask audit remains subject to signing and upstream eligibility rules; availability in this tap is not approval for the official Homebrew cask repository. See [release preparation](RELEASING.md#experimental-mac-disk-images) for the distribution boundaries.
 
 ## What you can do
 
@@ -40,7 +56,7 @@ Each person's attendance rate is `present / (present + absent)`. Excused and pen
 - **Web:** a Node version supported by Vite 8 (`^20.19.0 || >=22.12.0`) and pnpm **11.19.0**, pinned in `packageManager`. Run pnpm from `Web` so the package manager reads that version.
 - **iPhone/iPad:** configured minimum deployment target iOS/iPadOS 18. Preparation requires Xcode; XcodeGen is needed when generating or regenerating the project. See the [iOS guide](iOS/README.md).
 
-Verification for this work used an Apple Silicon Mac with macOS 27.0.1, Swift 6.4, and Node 24.21.0. Deployment targets do not prove execution on Sequoia or every supported device.
+Deployment targets and a universal executable do not establish compatibility with every supported device or validate end-user installation.
 
 ## Explore the web interface
 
@@ -84,9 +100,11 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   --scratch-path /tmp/nexo-mac-build -c release --arch arm64 --arch x86_64 -j 2
 ```
 
-### Prepare the Mac app bundle
+### Local development app-bundle script
 
-For an isolated build without installation into your normal Applications directory:
+`scripts/build-macos.sh` is a separate development installer, not the disk-image packaging path. Its installation/update behavior is not validated for this preview; do not use its default installation mode for an existing workspace. Prefer the published experimental disk image for distribution.
+
+For development output outside your normal Applications directory:
 
 ```sh
 NEXO_APP_DIR=/tmp/nexo-app-output NEXO_BUILD_DIR=/tmp/nexo-package-build \
@@ -95,13 +113,7 @@ NEXO_APP_DIR=/tmp/nexo-app-output NEXO_BUILD_DIR=/tmp/nexo-package-build \
 
 This isolates build outputs only. Opening the app still requires a separate QA environment to isolate runtime storage.
 
-To install into the default destination:
-
-```sh
-zsh scripts/build-macos.sh
-```
-
-This script builds the web and native code, creates `Nexo.app`, and installs it in `~/Applications/Nexo.app`. Close Nexo first: the script retains the previous app and, when present, copies the primary data file and checks that it remains identical. It uses ad-hoc signing unless another identity is explicitly configured; it does not notarize the app. OAuth configuration is excluded by default; inclusion requires an explicit `NEXO_GOOGLE_CONFIG` path. Review the inputs and output before distribution. See [release preparation](RELEASING.md).
+Without explicit output paths, this script builds the web and native code, creates `Nexo.app`, and installs it in `~/Applications/Nexo.app`. Close Nexo first: the script retains the previous app and, when present, copies the primary data file and checks that it remains identical. It uses ad-hoc signing unless another identity is explicitly configured; it does not notarize the app. OAuth configuration is excluded by default; inclusion requires an explicit `NEXO_GOOGLE_CONFIG` path. Review the inputs and output before distribution. See [release preparation](RELEASING.md).
 
 ## Storage and recovery
 
@@ -148,7 +160,7 @@ The development branch adds reliability fixes and a responsibility-based layout.
 
 Native visual review remains pending. Identify artifacts by commit and checksum as well as version: older 0.4.0 builds can contain different web resources.
 
-Execution on an actual Sequoia Mac, review of this build in WebKit and on physical devices, collaboration between two Macs using different accounts, a validated migration from VRR, and distribution signing remain pending. Historical records of other checks do not mean they were repeated against this build.
+End-user installation/update validation, comprehensive native visual and physical-device review, collaboration between two Macs using different accounts, a validated migration from VRR, and distribution signing remain pending. Historical records of other checks do not mean they were repeated against this build.
 
 ## Documentation
 
@@ -159,4 +171,4 @@ Execution on an actual Sequoia Mac, review of this build in WebKit and on physic
 - [Optional integrations and dependencies](docs/INTEGRATIONS.md)
 - [MIT-licensed code](LICENSE) · [Third-party notices](Web/public/ThirdPartyNotices.txt)
 
-This project began with the reviewed Nexo source snapshot `615057e`; its technical provenance is recorded in `SOURCE_ORIGIN.txt`. It excludes the previous Git history, user data, private OAuth configuration, and alpha packages. Source availability does not constitute an installable release or notarization.
+This project began with the reviewed Nexo source snapshot `615057e`; its technical provenance is recorded in `SOURCE_ORIGIN.txt`. It excludes the previous Git history, user data, private OAuth configuration, and alpha packages. Source availability and experimental disk images do not establish notarization or validated end-user installation.
