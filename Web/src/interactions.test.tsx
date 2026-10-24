@@ -1262,3 +1262,77 @@ describe('Startup draft recovery barrier', () => {
     r.noDraftWrites()
   })
 })
+
+
+describe('Space rename lifecycle', () => {
+  function editor() {
+    const s = fixture(), appHooks = new test.Hooks(), switchHooks = new test.Hooks()
+    s.organizations.push({ ...s.organizations[0], id: 'other-org', name: 'Other space' })
+    let reject!: (error: Error) => void, resolve!: () => void
+    const mutate = vi.fn().mockImplementation(() => new Promise<void>((done, fail) => { resolve = done; reject = fail }))
+    test.context = { snapshot: s, initialOrganizationID: 'org', drive: emptyDrive, driveBusy: false,
+      demo: true, loading: false, fault: '', busy: false, notify: vi.fn(), mutate, toast: null }
+    const app = () => appHooks.render(() => App())
+    const switcher = component(app(), 'SpaceSwitcher')
+    const render = () => switchHooks.render(() => invoke(switcher))
+    find(render(), (element) => typeof element.type === 'function' && element.type.name === 'MenuItem' && element.props.children === tr('Renombrar')).props.onClick()
+    find(render(), (element) => element.type === 'input').props.onChange({ target: { value: 'Keep typed name' } })
+    const input = () => find(render(), (element) => element.type === 'input')
+    const escape = () => ({ key: 'Escape', preventDefault: vi.fn(), stopPropagation: vi.fn() })
+    return { app, switcher, render, input, escape, mutate, resolve: () => resolve(), reject: () => reject(new Error('Synthetic rename failed')) }
+  }
+  it('submits once before rerender and keeps the pending name read-only', async () => {
+    const r = editor(), form = r.render()
+    form.props.onSubmit({ preventDefault: vi.fn() })
+    form.props.onSubmit({ preventDefault: vi.fn() })
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(r.input().props.readOnly).toBe(true)
+    r.resolve()
+    await flush()
+    expect(() => r.input()).toThrow()
+  })
+  it('retains a rejected name after submit/blur and supports a deliberate retry', async () => {
+    const r = editor(), form = r.render()
+    form.props.onSubmit({ preventDefault: vi.fn() })
+    find(form, (element) => element.type === 'input').props.onBlur()
+    r.reject()
+    await flush()
+    expect(r.input().props).toMatchObject({ value: 'Keep typed name', readOnly: false })
+    r.render().props.onSubmit({ preventDefault: vi.fn() })
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    expect(r.mutate.mock.calls[1][0]).toMatchObject({ kind: 'rename', entity: 'organization', id: 'org', name: 'Keep typed name' })
+    r.resolve()
+    await flush()
+    expect(() => r.input()).toThrow()
+  })
+  it('does not submit a rename through an old form callback after Escape', () => {
+    const r = editor(), form = r.render()
+    r.input().props.onKeyDown(r.escape())
+    form.props.onSubmit({ preventDefault: vi.fn() })
+    expect(r.mutate).not.toHaveBeenCalled()
+    expect(() => r.input()).toThrow()
+  })
+  it('does not present an outstanding rename as canceled by Escape', async () => {
+    const r = editor(), form = r.render()
+    form.props.onSubmit({ preventDefault: vi.fn() })
+    r.input().props.onKeyDown(r.escape())
+    expect(r.input().props.readOnly).toBe(true)
+    r.reject()
+    await flush()
+    expect(r.input().props.value).toBe('Keep typed name')
+  })
+  it('still allows blur to cancel an unsubmitted name', () => {
+    const r = editor()
+    r.input().props.onBlur()
+    expect(r.mutate).not.toHaveBeenCalled()
+    expect(() => r.input()).toThrow()
+  })
+  it('gives each active space its own rename component identity', () => {
+    const r = editor()
+    expect(r.switcher.key).toBe('org')
+    r.switcher.props.enter('other-org')
+    const next = component(r.app(), 'SpaceSwitcher')
+    expect(next.key).toBe('other-org')
+    expect(next.props.current).toMatchObject({ id: 'other-org', name: 'Other space' })
+  })
+})

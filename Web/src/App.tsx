@@ -365,7 +365,7 @@ export function App() {
       {tr('Ejemplo')} <X size={12} />
     </button>
   )
-  const spaceButton = <SpaceSwitcher current={organization} enter={enterSpace} manage={() => setSpaces('active')} create={() => setSimple('organization')} />
+  const spaceButton = <SpaceSwitcher key={organization.id} current={organization} enter={enterSpace} manage={() => setSpaces('active')} create={() => setSimple('organization')} />
   const periodButton = (
     <PeriodSwitcher
       periods={periods}
@@ -606,18 +606,55 @@ function SpaceSwitcher({
   const { snapshot: s, mutate } = useWorkspace()
   const [open, setOpen] = useState(false),
     [renaming, setRenaming] = useState(false),
-    [name, setName] = useState(current.name)
-  const anchor = useRef<HTMLButtonElement>(null)
+    [name, setName] = useState(current.name),
+    [saving, setSaving] = useState(false)
+  const anchor = useRef<HTMLButtonElement>(null),
+    input = useRef<HTMLInputElement>(null),
+    renamingActive = useRef(false),
+    submitting = useRef(false)
+  const cancelRename = () => {
+    if (submitting.current) return
+    renamingActive.current = false
+    setRenaming(false)
+  }
+  const rename = async () => {
+    if (!renamingActive.current || submitting.current) return
+    submitting.current = true
+    setSaving(true)
+    try {
+      await mutate({ kind: 'rename', entity: 'organization', id: current.id, name }, tr('Nombre actualizado'))
+      renamingActive.current = false
+      setRenaming(false)
+    } catch {
+      input.current?.focus()
+    } finally {
+      submitting.current = false
+      setSaving(false)
+    }
+  }
   if (renaming)
     return (
       <form
         className="nx-space-rename"
+        aria-busy={saving}
         onSubmit={(e) => {
           e.preventDefault()
-          void mutate({ kind: 'rename', entity: 'organization', id: current.id, name }, tr('Nombre actualizado')).then(() => setRenaming(false), () => {})
+          void rename()
         }}
       >
-        <input autoFocus value={name} maxLength={200} aria-label={tr('Nombre del espacio')} onChange={(e) => setName(e.target.value)} onBlur={() => setRenaming(false)} onKeyDown={(e) => e.key === 'Escape' && setRenaming(false)} />
+        <input
+          ref={input} autoFocus value={name} readOnly={saving} maxLength={200}
+          aria-label={tr('Nombre del espacio')}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={cancelRename}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              e.stopPropagation()
+              cancelRename()
+            }
+          }}
+        />
       </form>
     )
   return (
@@ -638,7 +675,12 @@ function SpaceSwitcher({
             </MenuItem>
           ))}
         <MenuDivider />
-        <MenuItem icon={<Pencil size={16} />} onClick={() => (setOpen(false), setName(current.name), setRenaming(true))}>
+        <MenuItem icon={<Pencil size={16} />} onClick={() => {
+          renamingActive.current = true
+          setOpen(false)
+          setName(current.name)
+          setRenaming(true)
+        }}>
           {tr('Renombrar')}
         </MenuItem>
         <MenuItem icon={<Plus size={16} />} onClick={() => (setOpen(false), create())}>
