@@ -1,0 +1,19 @@
+{
+  "name": "nexo-reconstruction",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local domain kernel for the Nexo reconstruction. Not the legacy Mac client.",
+  "engines": {
+    "node": "22.23.4"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test src/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "journey": "node --experimental-strip-types src/cli.ts"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.1",
+    "typescript": "5.9.3"
+  }
+}
