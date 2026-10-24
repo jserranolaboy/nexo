@@ -625,9 +625,10 @@ function RosterPicker({
     return true
   }
   const dismiss = () => {
-    if (!isCurrent() || operation.current) return
+    if (!isCurrent() || operation.current) return false
     session.current++
     close()
+    return true
   }
   // Only computed while the picker is open; closed, it costs nothing per render.
   const { available, groups } = useMemo(() => {

@@ -134,18 +134,19 @@ vi.mock('./usePaperZoom', () => ({
 vi.mock('motion/react', () => ({
   AnimatePresence: 'presence',
   motion: new Proxy({}, { get: (_target, name) => String(name) }),
-  useMotionValue: () => ({ set() {} }),
+  useMotionValue: () => ({ set: vi.fn() }),
   useReducedMotion: () => false,
   useTransform: () => 0,
   animate: vi.fn(),
 }))
 
 import { InlineText, Sheet } from './kit'
+import { animate } from 'motion/react'
 import { ComponentsSheet, GroupsSheet } from './Manage'
 import { EventView } from './EventView'
 import { DocumentStudio } from './Studio'
 import { WorkspaceProvider } from './workspace'
-import { EventForm } from './forms'
+import { EventForm, SimpleForm } from './forms'
 import { App } from './App'
 
 type Element = ReactElement<Record<string, any>>
@@ -429,12 +430,13 @@ function eventForm(
 ) {
   const close = vi.fn(),
     saved = vi.fn(),
-    hooks = new test.Hooks()
+    hooks = new test.Hooks(),
+    outerHooks = new test.Hooks()
   test.context = { mutate, busy: false }
-  const form = component(
+  const form = outerHooks.render(() => component(
     EventForm({ s, orgID: 'org', draft: { mode, event: s.events[0] }, close, saved }),
     'EventFormBody',
-  )
+  ))
   const render = () => hooks.render(() => invoke(form))
   return { render, mutate, close, saved }
 }
@@ -1771,4 +1773,347 @@ describe("Roster picker request and session lifecycle", () => {
     await flush();
     expect(r.close).not.toHaveBeenCalled();
   });
+});
+
+
+function pendingForm(kind: "event" | "member" | "period") {
+  const s = fixture(),
+    outerHooks = new test.Hooks(),
+    hooks = new test.Hooks(),
+    completed = vi.fn();
+  s.groups.push({
+    id: "group",
+    organizationID: "org",
+    name: "Synthetic group",
+  });
+  let open = true,
+    orgID = "org",
+    retained: Element | undefined;
+  const close = vi.fn(() => {
+    open = false;
+  });
+  const requests: {
+    resolve: (value: unknown) => void;
+    reject: (error: Error) => void;
+  }[] = [];
+  const mutate = vi
+    .fn()
+    .mockImplementation(
+      () =>
+        new Promise((resolve, reject) => requests.push({ resolve, reject })),
+    );
+  test.context = { mutate, busy: false };
+  const outer = () =>
+    outerHooks.render(() =>
+      kind === "event"
+        ? EventForm({
+            s,
+            orgID,
+            draft: open ? { mode: "edit", event: s.events[0] } : null,
+            close,
+            saved: completed,
+          })
+        : SimpleForm({
+            s,
+            orgID,
+            kind: open ? kind : null,
+            close,
+            created: completed,
+          }),
+    );
+  const render = () => {
+    const tree = outer();
+    if (open)
+      retained = component(
+        tree,
+        kind === "event" ? "EventFormBody" : "SimpleBody",
+      );
+    return hooks.render(() => invoke(retained!));
+  };
+  const input = () =>
+    find(
+      render(),
+      (element) =>
+        element.type === "input" &&
+        element.props.className === "nx-title-field",
+    );
+  input().props.onChange({ target: { value: "Original submitted value" } });
+  return {
+    s,
+    render,
+    input,
+    outer,
+    close,
+    completed,
+    mutate,
+    resolve: (index = 0) => requests[index].resolve(s),
+    reject: (index = 0) =>
+      requests[index].reject(new Error("Synthetic save failure")),
+    externallyClose: () => {
+      open = false;
+      outer();
+    },
+    reopen: () => {
+      open = true;
+      outer();
+    },
+    switchSpace: () => {
+      orgID = "other-org";
+      outer();
+    },
+    dispose: () => {
+      hooks.dispose();
+      outerHooks.dispose();
+    },
+  };
+}
+
+describe("Primary form submission lifetime", () => {
+  it.each(["event", "member"] as const)(
+    "blocks %s Sheet/Cancel dismissal while its write is pending",
+    async (kind) => {
+      const r = pendingForm(kind),
+        request = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      component(r.outer(), "Sheet").props.onClose();
+      component(r.render(), "Footer").props.onCancel();
+      expect(r.close).not.toHaveBeenCalled();
+      r.resolve();
+      await request;
+      expect(r.completed).toHaveBeenCalledOnce();
+      expect(r.close).toHaveBeenCalledOnce();
+    },
+  );
+  it.each(["event", "member"] as const)(
+    "ignores late %s completion after external close even while the exit body stays mounted",
+    async (kind) => {
+      const r = pendingForm(kind),
+        request = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      r.externallyClose();
+      r.resolve();
+      await request;
+      expect(r.completed).not.toHaveBeenCalled();
+      expect(r.close).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["event", "member"] as const)(
+    "ignores %s rejection after external unmount",
+    async (kind) => {
+      const r = pendingForm(kind),
+        request = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      r.dispose();
+      r.reject();
+      await request;
+      expect(r.completed).not.toHaveBeenCalled();
+      expect(r.close).not.toHaveBeenCalled();
+      expect(component(r.render(), "Footer").props.error).toBe("");
+    },
+  );
+  it.each(["event", "member", "period"] as const)(
+    "freezes %s primary-save edits immediately, then preserves submitted values",
+    async (kind) => {
+      const r = pendingForm(kind),
+        input = r.input(),
+        request = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      input.props.onChange({ target: { value: "Newer unsaved value" } });
+      expect(r.input().props).toMatchObject({
+        value: "Original submitted value",
+        readOnly: true,
+      });
+      if (kind === "event")
+        expect(component(r.render(), "Toggle").props.disabled).toBe(true);
+      if (kind === "member")
+        expect(
+          find(
+            r.render(),
+            (element) =>
+              element.type === "button" &&
+              element.props.className === "nx-chip",
+          ).props.disabled,
+        ).toBe(true);
+      if (kind === "period")
+        expect(
+          find(
+            r.render(),
+            (element) =>
+              element.type === "input" && element.props.type === "date",
+          ).props.disabled,
+        ).toBe(true);
+      r.resolve();
+      await request;
+      expect(r.close).toHaveBeenCalledOnce();
+    },
+  );
+  it.each(["event", "member"] as const)(
+    "unlocks a failed %s primary save without losing the draft and permits retry",
+    async (kind) => {
+      const r = pendingForm(kind),
+        request = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      r.reject();
+      await request;
+      expect(r.input().props).toMatchObject({
+        value: "Original submitted value",
+        readOnly: false,
+      });
+      expect(component(r.render(), "Footer").props.error).toBe(
+        "Synthetic save failure",
+      );
+      r.input().props.onChange({ target: { value: "Repaired value" } });
+      const retry = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      expect(r.mutate).toHaveBeenCalledTimes(2);
+      expect(r.mutate.mock.calls[1][0]).toMatchObject(
+        kind === "event"
+          ? { entity: { title: "Repaired value" } }
+          : { name: "Repaired value" },
+      );
+      r.resolve(1);
+      await retry;
+      expect(r.close).toHaveBeenCalledOnce();
+    },
+  );
+  it.each(["event", "member"] as const)(
+    "does not submit an idle canceled %s form through a retained callback",
+    async (kind) => {
+      const r = pendingForm(kind),
+        form = r.render();
+      component(r.outer(), "Sheet").props.onClose();
+      const request = form.props.onSubmit({ preventDefault: vi.fn() });
+      expect(r.close).toHaveBeenCalledOnce();
+      expect(r.mutate).not.toHaveBeenCalled();
+      await request;
+    },
+  );
+  it.each(["event", "member"] as const)(
+    "keeps a reopened %s request locked when an earlier session completes",
+    async (kind) => {
+      const r = pendingForm(kind),
+        oldRequest = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      r.externallyClose();
+      r.reopen();
+      r.input().props.onChange({ target: { value: "New session value" } });
+      const newRequest = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      expect(r.mutate).toHaveBeenCalledTimes(2);
+      r.resolve();
+      await oldRequest;
+      expect(r.input().props).toMatchObject({
+        value: "New session value",
+        readOnly: true,
+      });
+      expect(r.completed).not.toHaveBeenCalled();
+      expect(r.close).not.toHaveBeenCalled();
+      r.resolve(1);
+      await newRequest;
+      expect(r.completed).toHaveBeenCalledOnce();
+      expect(r.close).toHaveBeenCalledOnce();
+    },
+  );
+  it.each(["event", "member"] as const)(
+    "invalidates old %s dismissals and body identity when changing spaces",
+    (kind) => {
+      const r = pendingForm(kind),
+        original = component(r.outer(), "Sheet"),
+        oldBody = component(
+          r.outer(),
+          kind === "event" ? "EventFormBody" : "SimpleBody",
+        );
+      r.switchSpace();
+      const nextBody = component(
+        r.outer(),
+        kind === "event" ? "EventFormBody" : "SimpleBody",
+      );
+      expect(nextBody.key).not.toBe(oldBody.key);
+      original.props.onClose();
+      expect(r.close).not.toHaveBeenCalled();
+    },
+  );
+});
+
+
+describe("Phone sheet refused dismissal", () => {
+  it.each(["event", "member"] as const)(
+    "restores the %s sheet position when a pending save refuses a swipe",
+    async (kind) => {
+      window.innerWidth = 400;
+      const r = pendingForm(kind),
+        request = r.render().props.onSubmit({ preventDefault: vi.fn() });
+      const hooks = new test.Hooks(),
+        tree = hooks.render(() =>
+          Sheet(
+            component(r.outer(), "Sheet").props as Parameters<typeof Sheet>[0],
+          ),
+        );
+      const panel = find(tree, (element) => element.props.role === "dialog"),
+        grabber = find(
+          tree,
+          (element) => element.props.className === "nx-grabber",
+        );
+      vi.mocked(animate).mockClear();
+      grabber.props.onPan(null, { offset: { y: 600 } });
+      expect(panel.props.style.y.set).toHaveBeenLastCalledWith(600);
+      grabber.props.onPanEnd(null, { offset: { y: 600 }, velocity: { y: 0 } });
+      expect(r.close).not.toHaveBeenCalled();
+      expect(animate).toHaveBeenCalledWith(
+        panel.props.style.y,
+        0,
+        expect.anything(),
+      );
+      r.reject();
+      await request;
+      expect(component(r.render(), "Footer").props.error).toBe(
+        "Synthetic save failure",
+      );
+    },
+  );
+  it("also restores a pending roster picker after a refused swipe", () => {
+    window.innerWidth = 400;
+    const r = rosterPicker();
+    r.option().props.onClick();
+    r.submit().props.onClick();
+    const hooks = new test.Hooks(),
+      tree = hooks.render(() =>
+        Sheet(
+          component(r.render(), "Sheet").props as Parameters<typeof Sheet>[0],
+        ),
+      );
+    const panel = find(tree, (element) => element.props.role === "dialog"),
+      grabber = find(
+        tree,
+        (element) => element.props.className === "nx-grabber",
+      );
+    vi.mocked(animate).mockClear();
+    grabber.props.onPanEnd(null, { offset: { y: 600 }, velocity: { y: 0 } });
+    expect(r.close).not.toHaveBeenCalled();
+    expect(animate).toHaveBeenCalledWith(
+      panel.props.style.y,
+      0,
+      expect.anything(),
+    );
+  });
+  it.each([undefined, true])(
+    "keeps accepted %s dismissal and short-swipe reset behavior",
+    (accepted) => {
+      window.innerWidth = 400;
+      const hooks = new test.Hooks(),
+        onClose = vi.fn().mockReturnValue(accepted),
+        tree = hooks.render(() =>
+          Sheet({ open: true, onClose, children: null }),
+        );
+      const panel = find(tree, (element) => element.props.role === "dialog"),
+        grabber = find(
+          tree,
+          (element) => element.props.className === "nx-grabber",
+        );
+      vi.mocked(animate).mockClear();
+      grabber.props.onPanEnd(null, { offset: { y: 10 }, velocity: { y: 0 } });
+      expect(animate).toHaveBeenCalledWith(
+        panel.props.style.y,
+        0,
+        expect.anything(),
+      );
+      expect(onClose).not.toHaveBeenCalled();
+      vi.mocked(animate).mockClear();
+      grabber.props.onPanEnd(null, { offset: { y: 600 }, velocity: { y: 0 } });
+      expect(onClose).toHaveBeenCalledOnce();
+      expect(animate).not.toHaveBeenCalled();
+    },
+  );
 });

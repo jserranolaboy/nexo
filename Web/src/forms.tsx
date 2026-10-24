@@ -1,5 +1,5 @@
 import { t as tr, locale } from './i18n'
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Check, Minus, Plus } from 'lucide-react'
 import { id, nextWholeHour } from './domain'
 import type { Activity, ID, Period, Snapshot } from './domain'
@@ -11,38 +11,74 @@ const dateValue = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pa
 const timeValue = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`
 const combine = (date: string, time: string) => new Date(`${date}T${time || '00:00'}:00`)
 
-function useSubmit() {
+type FormSession = { active: boolean; pending: boolean }
+// A Sheet can retain its exit body after the outer form changes context.
+function useFormSession(key: string | null) {
+  const session = useMemo<FormSession>(() => ({ active: !!key, pending: false }), [key])
+  useLayoutEffect(() => {
+    session.active = !!key
+    return () => { session.active = false }
+  }, [session, key])
+  return session
+}
+function dismissForm(session: FormSession, close: () => void) {
+  if (!session.active || session.pending) return false
+  session.active = false
+  close()
+  return true
+}
+function useSubmit(session: FormSession) {
   const { busy } = useWorkspace()
   const [error, setError] = useState(''),
-    [saving, setSaving] = useState(false)
-  const submitting = useRef(false)
-  const run = async (job: () => Promise<unknown>) => {
-    if (submitting.current || busy) return false
-    submitting.current = true
+    [saving, setSaving] = useState(false),
+    [committing, setCommitting] = useState(false)
+  const mounted = useRef(true), primaryWrite = useRef(false)
+  useLayoutEffect(() => {
+    mounted.current = true
+    primaryWrite.current = false
+    setSaving(false)
+    setCommitting(false)
+    setError('')
+    return () => { mounted.current = false }
+  }, [session])
+  const isActive = () => mounted.current && session.active
+  const canEdit = () => isActive() && !primaryWrite.current
+  const run = async (job: () => Promise<unknown>, primary = false) => {
+    if (!isActive() || session.pending || busy) return false
+    session.pending = true
+    // Inline classification writes share the lock without freezing newer choices.
+    primaryWrite.current = primary
+    setCommitting(primary)
     setSaving(true)
     setError('')
     try {
       await job()
-      return true
+      return isActive()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      if (isActive()) setError(e instanceof Error ? e.message : String(e))
       return false
     } finally {
-      submitting.current = false
-      setSaving(false)
+      session.pending = false
+      if (isActive()) {
+        primaryWrite.current = false
+        setCommitting(false)
+        setSaving(false)
+      }
     }
   }
-  return { error, saving: saving || busy, run, setError }
+  return { error, saving: saving || busy, committing, canEdit, isActive, run, setError }
 }
 
 function Footer({
   saving,
+  pending,
   error,
   label,
   disabled,
   onCancel,
 }: {
   saving: boolean
+  pending: boolean
   error: string
   label: string
   disabled?: boolean
@@ -56,7 +92,7 @@ function Footer({
         </p>
       )}
       <div className="nx-form-footer">
-        <button type="button" className="nx-button" onClick={onCancel}>
+        <button type="button" className="nx-button" disabled={pending} onClick={onCancel}>
           {tr('Cancelar')}
         </button>
         <button className="nx-button primary" disabled={saving || disabled}>
@@ -68,7 +104,7 @@ function Footer({
 }
 
 /** Inline "new item" chip used inside forms: becomes a small field when tapped. */
-function NewChip({ label, onCreate }: { label: string; onCreate: (name: string) => Promise<boolean> }) {
+function NewChip({ label, onCreate, disabled }: { label: string; onCreate: (name: string) => Promise<boolean>; disabled?: boolean }) {
   const [editing, setEditing] = useState(false),
     [name, setName] = useState(''),
     [saving, setSaving] = useState(false)
@@ -76,7 +112,8 @@ function NewChip({ label, onCreate }: { label: string; onCreate: (name: string) 
     editingVersion = useRef(0)
   if (!editing)
     return (
-      <button type="button" className="nx-chip add" onClick={() => {
+      <button type="button" className="nx-chip add" disabled={disabled} onClick={() => {
+        if (disabled) return
         editingVersion.current++
         setEditing(true)
       }}>
@@ -91,7 +128,7 @@ function NewChip({ label, onCreate }: { label: string; onCreate: (name: string) 
     setEditing(false)
   }
   const save = async () => {
-    if (version !== editingVersion.current || submitting.current) return
+    if (disabled || version !== editingVersion.current || submitting.current) return
     if (!name.trim()) return finishEditing()
     submitting.current = true
     setSaving(true)
@@ -107,12 +144,12 @@ function NewChip({ label, onCreate }: { label: string; onCreate: (name: string) 
       <input
         autoFocus
         value={name}
-        readOnly={saving}
+        readOnly={saving || disabled}
         maxLength={200}
         aria-label={label}
         placeholder={label}
         onChange={(e) => {
-          if (version === editingVersion.current && !submitting.current) setName(e.target.value)
+          if (!disabled && version === editingVersion.current && !submitting.current) setName(e.target.value)
         }}
         onBlur={() => void save()}
         onKeyDown={(e) => {
@@ -122,7 +159,7 @@ function NewChip({ label, onCreate }: { label: string; onCreate: (name: string) 
           }
           if (e.key === 'Escape') {
             e.stopPropagation()
-            if (version === editingVersion.current && !submitting.current) finishEditing()
+            if (!disabled && version === editingVersion.current && !submitting.current) finishEditing()
           }
         }}
       />
@@ -145,10 +182,13 @@ export function EventForm({
   close: () => void
   saved: (id: ID) => void
 }) {
+  const key = draft ? `${orgID}:${draft.mode}:${draft.event?.id ?? ''}:${draft.day?.getTime() ?? ''}` : null
+  const session = useFormSession(key)
+  const dismiss = () => dismissForm(session, close)
   return (
     <Sheet
       open={!!draft}
-      onClose={close}
+      onClose={dismiss}
       title={
         draft?.mode === 'edit'
           ? tr('Editar encuentro')
@@ -159,12 +199,13 @@ export function EventForm({
     >
       {draft && (
         <EventFormBody
-          key={`${draft.mode}-${draft.event?.id}`}
+          key={key}
           s={s}
           orgID={orgID}
           draft={draft}
-          close={close}
+          close={dismiss}
           saved={saved}
+          session={session}
         />
       )}
     </Sheet>
@@ -177,12 +218,14 @@ function EventFormBody({
   draft,
   close,
   saved,
+  session,
 }: {
   s: Snapshot
   orgID: ID
   draft: EventDraft
   close: () => void
   saved: (id: ID) => void
+  session: FormSession
 }) {
   const { mutate } = useWorkspace()
   const source = draft.event
@@ -211,7 +254,7 @@ function EventFormBody({
     [volunteers, setVolunteers] = useState(source?.volunteerCapacity != null),
     [capacity, setCapacity] = useState(source?.volunteerCapacity ?? 4),
     [copyList, setCopyList] = useState(true)
-  const { error, saving, run } = useSubmit()
+  const { error, saving, committing, canEdit, isActive, run } = useSubmit(session)
   const classificationVersion = useRef(0)
   const categories = s.categories.filter((c) => c.componentID === componentID)
   const sourceRows =
@@ -243,14 +286,14 @@ function EventFormBody({
           .filter((m) => s.members.some((x) => x.id === m && x.organizationID === orgID && x.isActive)) : []
         await mutate({ kind: 'addEvent', entity, ...(people.length ? { memberIDs: people } : {}) }, tr('Encuentro creado'))
       }
-      saved(entity.id)
-    })
+      if (isActive()) saved(entity.id)
+    }, true)
     if (ok) close()
   }
   const createComponent = async (name: string) => {
     const newID = id(), version = classificationVersion.current
     const ok = await run(() => mutate({ kind: 'addComponent', id: newID, organizationID: orgID, name }))
-    if (ok && version === classificationVersion.current) {
+    if (ok && isActive() && version === classificationVersion.current) {
       setComponentID(newID)
       setCategoryID('')
     }
@@ -259,7 +302,7 @@ function EventFormBody({
   const createCategory = async (name: string) => {
     const newID = id(), version = classificationVersion.current
     const ok = await run(() => mutate({ kind: 'addCategory', id: newID, componentID, name }))
-    if (ok && version === classificationVersion.current) setCategoryID(newID)
+    if (ok && isActive() && version === classificationVersion.current) setCategoryID(newID)
     return ok
   }
   return (
@@ -270,15 +313,16 @@ function EventFormBody({
         required
         maxLength={200}
         value={title}
+        readOnly={committing}
         placeholder={tr('Nombre del encuentro')}
         aria-label={tr('Nombre del encuentro')}
         autoCapitalize="sentences"
         enterKeyHint="next"
-        onChange={(e) => setTitle(e.target.value)}
+        onChange={(e) => { if (canEdit()) setTitle(e.target.value) }}
       />
       <div className="nx-field-pair">
         <Field label={tr('Día')}>
-          <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
+          <input type="date" required value={date} disabled={committing} onChange={(e) => { if (canEdit()) setDate(e.target.value) }} />
         </Field>
         <Field label={tr('Hora')}>
           <input
@@ -286,7 +330,8 @@ function EventFormBody({
             required
             step={300}
             value={time}
-            onChange={(e) => setTime(e.target.value)}
+            disabled={committing}
+            onChange={(e) => { if (canEdit()) setTime(e.target.value) }}
           />
         </Field>
       </div>
@@ -312,8 +357,10 @@ function EventFormBody({
               type="button"
               key={c.id}
               className="nx-chip"
+              disabled={committing}
               aria-pressed={componentID === c.id}
               onClick={() => {
+                if (!canEdit()) return
                 classificationVersion.current++
                 setComponentID(c.id)
                 setCategoryID('')
@@ -323,6 +370,7 @@ function EventFormBody({
             </button>
           ))}
           <NewChip
+            disabled={committing}
             label={components.length ? tr('Otro') : tr('Crear componente')}
             onCreate={createComponent}
           />
@@ -339,8 +387,10 @@ function EventFormBody({
                 type="button"
                 key={c.id}
                 className="nx-chip"
+                disabled={committing}
                 aria-pressed={categoryID === c.id}
                 onClick={() => {
+                  if (!canEdit()) return
                   classificationVersion.current++
                   setCategoryID(categoryID === c.id ? '' : c.id)
                 }}
@@ -348,18 +398,18 @@ function EventFormBody({
                 {c.name}
               </button>
             ))}
-            <NewChip key={componentID} label={tr('Categoría')} onCreate={createCategory} />
+            <NewChip key={componentID} disabled={committing} label={tr('Categoría')} onCreate={createCategory} />
           </div>
         </fieldset>
       )}
       <div className="nx-group">
         <div className="nx-group-row">
           <span>{tr('Cuenta para asistencia')}</span>
-          <Toggle checked={counts} onChange={setCounts} label={tr('Cuenta para asistencia')} />
+          <Toggle checked={counts} disabled={committing} onChange={(value) => { if (canEdit()) setCounts(value) }} label={tr('Cuenta para asistencia')} />
         </div>
         <div className="nx-group-row">
           <span>{tr('Voluntariado')}</span>
-          <Toggle checked={volunteers} onChange={setVolunteers} label={tr('Voluntariado')} />
+          <Toggle checked={volunteers} disabled={committing} onChange={(value) => { if (canEdit()) setVolunteers(value) }} label={tr('Voluntariado')} />
         </div>
         {volunteers && (
           <div className="nx-group-row">
@@ -368,7 +418,8 @@ function EventFormBody({
               <button
                 type="button"
                 aria-label={tr('Menos cupos')}
-                onClick={() => setCapacity(Math.max(1, capacity - 1))}
+                disabled={committing}
+                onClick={() => { if (canEdit()) setCapacity(Math.max(1, capacity - 1)) }}
               >
                 <Minus size={15} />
               </button>
@@ -376,7 +427,8 @@ function EventFormBody({
               <button
                 type="button"
                 aria-label={tr('Más cupos')}
-                onClick={() => setCapacity(Math.min(5000, capacity + 1))}
+                disabled={committing}
+                onClick={() => { if (canEdit()) setCapacity(Math.min(5000, capacity + 1)) }}
               >
                 <Plus size={15} />
               </button>
@@ -386,12 +438,13 @@ function EventFormBody({
         {!!sourceRows.length && (
           <div className="nx-group-row">
             <span>{tr('Copiar la lista ({0})', sourceRows.length)}</span>
-            <Toggle checked={copyList} onChange={setCopyList} label={tr('Copiar la lista')} />
+            <Toggle checked={copyList} disabled={committing} onChange={(value) => { if (canEdit()) setCopyList(value) }} label={tr('Copiar la lista')} />
           </div>
         )}
       </div>
       <Footer
         saving={saving}
+        pending={session.pending}
         error={error}
         onCancel={close}
         disabled={!title.trim()}
@@ -418,6 +471,9 @@ export function SimpleForm({
   created?: (kind: SimpleKind, id: ID) => void
   period?: Period | null
 }) {
+  const key = kind ? `${orgID}:${kind}:${period?.id ?? ''}` : null
+  const session = useFormSession(key)
+  const dismiss = () => dismissForm(session, close)
   const titles: Record<SimpleKind, string> = {
     member: tr('Nueva persona'),
     group: tr('Nuevo grupo'),
@@ -426,16 +482,17 @@ export function SimpleForm({
     period: period ? tr('Editar período') : tr('Nuevo período'),
   }
   return (
-    <Sheet open={!!kind} onClose={close} title={kind ? titles[kind] : ''}>
+    <Sheet open={!!kind} onClose={dismiss} title={kind ? titles[kind] : ''}>
       {kind && (
         <SimpleBody
-          key={kind + (period?.id || '')}
+          key={key}
           s={s}
           orgID={orgID}
           kind={kind}
-          close={close}
+          close={dismiss}
           created={created}
           period={period}
+          session={session}
         />
       )}
     </Sheet>
@@ -462,6 +519,7 @@ function SimpleBody({
   close,
   created,
   period,
+  session,
 }: {
   s: Snapshot
   orgID: ID
@@ -469,6 +527,7 @@ function SimpleBody({
   close: () => void
   created?: (kind: SimpleKind, id: ID) => void
   period?: Period | null
+  session: FormSession
 }) {
   const { mutate } = useWorkspace()
   const suggestion = suggestedPeriod(s, orgID)
@@ -477,7 +536,7 @@ function SimpleBody({
     [groups, setGroups] = useState<ID[]>([]),
     [first, setFirst] = useState(dateValue(period ? new Date(period.startsAt) : suggestion.start)),
     [last, setLast] = useState(dateValue(lastDay))
-  const { error, saving, run } = useSubmit()
+  const { error, saving, committing, canEdit, isActive, run } = useSubmit(session)
   const orgGroups = s.groups.filter((g) => g.organizationID === orgID)
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -513,8 +572,8 @@ function SimpleBody({
           period ? tr('Período actualizado') : tr('Período creado'),
         )
       }
-      created?.(kind, period?.id ?? newID)
-    })
+      if (isActive()) created?.(kind, period?.id ?? newID)
+    }, true)
     if (ok) close()
   }
   const placeholder: Record<SimpleKind, string> = {
@@ -532,13 +591,14 @@ function SimpleBody({
         required
         maxLength={200}
         value={name}
+        readOnly={committing}
         placeholder={placeholder[kind]}
         aria-label={placeholder[kind]}
         autoComplete={kind === 'member' ? 'name' : 'off'}
         autoCapitalize="words"
         autoCorrect="off"
         spellCheck={false}
-        onChange={(e) => setName(e.target.value)}
+        onChange={(e) => { if (canEdit()) setName(e.target.value) }}
       />
       {kind === 'member' && !!orgGroups.length && (
         <fieldset className="nx-fieldset">
@@ -551,10 +611,11 @@ function SimpleBody({
                 type="button"
                 key={g.id}
                 className="nx-chip"
+                disabled={committing}
                 aria-pressed={groups.includes(g.id)}
-                onClick={() =>
-                  setGroups(groups.includes(g.id) ? groups.filter((x) => x !== g.id) : [...groups, g.id])
-                }
+                onClick={() => {
+                  if (canEdit()) setGroups(groups.includes(g.id) ? groups.filter((x) => x !== g.id) : [...groups, g.id])
+                }}
               >
                 {groups.includes(g.id) && <Check size={14} />}
                 {g.name}
@@ -566,15 +627,16 @@ function SimpleBody({
       {kind === 'period' && (
         <div className="nx-field-pair">
           <Field label={tr('Primer día')}>
-            <input type="date" required value={first} onChange={(e) => setFirst(e.target.value)} />
+            <input type="date" required value={first} disabled={committing} onChange={(e) => { if (canEdit()) setFirst(e.target.value) }} />
           </Field>
           <Field label={tr('Último día')}>
-            <input type="date" required value={last} onChange={(e) => setLast(e.target.value)} />
+            <input type="date" required value={last} disabled={committing} onChange={(e) => { if (canEdit()) setLast(e.target.value) }} />
           </Field>
         </div>
       )}
       <Footer
         saving={saving}
+        pending={session.pending}
         error={error}
         onCancel={close}
         disabled={!name.trim()}

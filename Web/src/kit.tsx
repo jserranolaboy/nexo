@@ -37,7 +37,8 @@ export function Sheet({
   label,
 }: {
   open: boolean
-  onClose: () => void
+  // Return false when a synchronous guard refuses dismissal (for example, a pending save).
+  onClose: () => void | boolean
   title?: string
   children: ReactNode
   actions?: ReactNode
@@ -107,9 +108,9 @@ export function Sheet({
                 aria-hidden="true"
                 onPan={(_, info) => y.set(Math.max(0, info.offset.y))}
                 onPanEnd={(_, info) => {
-                  if (info.offset.y > 110 || (info.offset.y > 30 && info.velocity.y > 600))
-                    onClose()
-                  else animate(y, 0, spring)
+                  if (info.offset.y > 110 || (info.offset.y > 30 && info.velocity.y > 600)) {
+                    if (onClose() === false) animate(y, 0, spring)
+                  } else animate(y, 0, spring)
                 }}
               >
                 <span />
