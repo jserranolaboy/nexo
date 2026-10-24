@@ -2979,3 +2979,20 @@ describe('First-space creation across committed snapshot publication', () => {
     expect(r.kind()).toBeNull()
   })
 })
+
+describe('Event document action accessibility', () => {
+  it.each([390, 1200])('keeps an explicit localized name at viewport width %s', (width) => {
+    window.innerWidth = width
+    const s = fixture(), openDocument = vi.fn()
+    test.context = { mutate: vi.fn(), notify: vi.fn() }
+    const hooks = new test.Hooks()
+    const tree = hooks.render(() => EventView({
+      s, event: s.events[0], edit: vi.fn(), document: openDocument, openMember: vi.fn(),
+    }))
+    const action = find(tree, (element) => element.type === 'button' && element.props.onClick === openDocument)
+    // Phone CSS hides the caption, so it cannot be the button's only accessible name.
+    expect(action.props['aria-label']).toBe(tr('Documento'))
+    action.props.onClick()
+    expect(openDocument).toHaveBeenCalledTimes(1)
+  })
+})

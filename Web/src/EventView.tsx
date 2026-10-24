@@ -90,7 +90,7 @@ export function EventView({
             </button>
           )}
           <span className="nx-spacer" />
-          <button className="nx-button quiet" onClick={openDocument}>
+          <button className="nx-button quiet" aria-label={tr('Documento')} onClick={openDocument}>
             <FileText size={17} />
             <span>{tr('Documento')}</span>
           </button>
