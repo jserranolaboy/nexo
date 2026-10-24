@@ -36,4 +36,6 @@ Recovery starts a new local revision above the imported, current, and retained b
 
 Use the root `Makefile` for local suites, or the explicit commands in the main README. `scripts/build-macos.sh` packages the current executable as `Nexo.app`. Preferred output overrides are `NEXO_APP_DIR` and `NEXO_BUILD_DIR`; the older `VALENTINA_APP_DIR` and `VALENTINA_BUILD_DIR` remain aliases for existing local build commands. The builder does not automatically discover or include OAuth configuration; `NEXO_GOOGLE_CONFIG` must explicitly point to a file when that optional configuration is intended.
 
+The Mac installer is a separate shell helper, `scripts/install-macos.zsh`. It stages and verifies the new bundle on the destination filesystem, retains the previous bundle, and attempts rollback after failed replacement. It does not access workspace data. Full data backups and runtime validation remain separate update prerequisites; see [release preparation](../RELEASING.md).
+
 The checked-in iOS project is generated from `iOS/project.yml`. Update the specification, regenerate with XcodeGen, and inspect the resulting paths and signing settings together. Generated web resources and icons remain untracked.

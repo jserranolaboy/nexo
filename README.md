@@ -113,7 +113,7 @@ NEXO_APP_DIR=/tmp/nexo-app-output NEXO_BUILD_DIR=/tmp/nexo-package-build \
 
 This isolates build outputs only. Opening the app still requires a separate QA environment to isolate runtime storage.
 
-Without explicit output paths, this script builds the web and native code, creates `Nexo.app`, and installs it in `~/Applications/Nexo.app`. Close Nexo first: the script retains the previous app and, when present, copies the primary data file and checks that it remains identical. It uses ad-hoc signing unless another identity is explicitly configured; it does not notarize the app. OAuth configuration is excluded by default; inclusion requires an explicit `NEXO_GOOGLE_CONFIG` path. Review the inputs and output before distribution. See [release preparation](RELEASING.md).
+Without explicit output paths, this script builds the web and native code, creates `Nexo.app`, and installs it in `~/Applications/Nexo.app`. Close every Nexo copy that shares your workspace first. The installer stages and verifies the replacement on the destination filesystem, retains the complete previous app beside it as `Nexo.previous-<unique ID>.app`, and attempts rollback if replacement or verification fails. It does not read, copy, or migrate application data. Before an update, separately back up the complete support directory, including drafts and history; see [release preparation](RELEASING.md). It uses ad-hoc signing unless another identity is explicitly configured and does not notarize the app. OAuth configuration is excluded by default; inclusion requires an explicit `NEXO_GOOGLE_CONFIG` path. Review the inputs and output before distribution.
 
 ## Storage and recovery
 

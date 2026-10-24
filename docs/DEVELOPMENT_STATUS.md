@@ -24,6 +24,13 @@ Version 0.4.1 (11) is development work, not a stable application distribution. T
 - Malformed optional Mac Google configuration no longer disables its own repair controls or reads a session at startup. Deliberate repair preserves the malformed file privately before replacing it. Import does not delete a stored session.
 - In-flight token responses cannot save or return credentials after an explicit configuration/session change, including a client round trip. Routine concurrent refreshes remain supported. A valid configuration import reports success even if later session restoration fails; the separate status error explains that failure.
 
+## Mac update safeguards
+
+- The installer stages and verifies the replacement on the destination filesystem before moving the existing app. Successful updates retain the complete old bundle; failed replacement or final verification attempts rollback. A destination lock prevents cooperating installers from replacing the same app concurrently.
+- Process checks recognize both executable names and normalize relative paths and symlink aliases. The installer checks again after staging and fails closed if process inspection is unavailable. All copies sharing a workspace must still be closed before updating.
+- Packaging no longer reads or copies application support data. A complete independent support-directory backup, including drafts, history and private local configuration, is a separate prerequisite for a real update. Public packages continue to exclude optional OAuth configuration by default.
+- `scripts/test-install-macos.zsh` lists 21 temporary-fixture scenarios, including replacement and first-install failures, running-process changes, relative destinations, and symlink aliases. This checkout did not run that script. Stubbed signature and process checks are distinct from real bundle verification and native QA.
+
 ## Checks after consolidation
 
 Checks use synthetic fixtures, temporary build directories, and fake Drive transport. They do not access live accounts or real workspaces.
@@ -33,6 +40,7 @@ Checks use synthetic fixtures, temporary build directories, and fake Drive trans
 | Core XCTest suite | 42 passed; `NexoCoreChecks` executable also passed. |
 | Native Swift Testing suite | 42 executed successfully; 1 opt-in live Drive test skipped (43 reported). The auth suite has 7 tests covering 9 cases. |
 | Web Vitest suite | 79 passed across 7 files. |
+| macOS installer fixtures | Not run in this checkout. The script lists 21 temporary-fixture scenarios with stubbed signatures and a stubbed process inventory; it needs macOS zsh, `/usr/bin/ditto`, and BSD `stat`. |
 | TypeScript and production web build | Passed; existing main-chunk size warning remains. |
 | Universal Mac app package | Built as 0.4.1 (11), arm64 and x86_64, ad-hoc signature verified, no bundled OAuth configuration. Mach-O minimum target is macOS 15. |
 | iOS generated project | Regenerated with XcodeGen using the new package and test paths. |
@@ -60,7 +68,7 @@ The cloud checkout began at `085f8ec`. This work changes the shared web interfac
 
 Validation on Linux with Node 24.22.1 and the pinned pnpm 11.19.0: **195 web tests pass**, TypeScript and the production build pass, and localization and whitespace checks pass. The initial 79-test baseline was green. Forty-six initial cloud interaction regressions failed before their corresponding fixes; 9 further event-classification regressions failed on `29f5066`, and 11 roster-picker cases failed on `9e0c007` with one existing retry control passing. All 17 primary-form lifetime cases fail on `fdd38b9` before the corresponding fix. Three additional swipe-refusal cases failed before the shared-sheet adjustment; accepted-dismissal controls remain green. The date-order suite adds 10 before-fix failures and 3 controls. Other new cases cover unchanged-input behavior and geometry boundaries. Existing main-chunk size warnings remain. Callback tests are not DOM, visual, accessibility, or native-renderer integration tests.
 
-Swift, Xcode, and Apple UI runtimes are unavailable in this cloud environment. The historical Core/Native/macOS/iOS results above were not repeated here. No installed app, user workspace, Drive account, prerelease, or stable release was modified. The later installer staging/backup/rollback work remains uncommitted on the offline Mac and has **not** been recovered into this checkout; reconcile it separately before installer integration. Native export/PDF, final package, actual Sequoia and physical-device verification remain pending.
+Swift, Xcode, and Apple UI runtimes are unavailable in this cloud environment. The historical Core/Native/macOS/iOS results above were not repeated here. No installed app, user workspace, Drive account, prerelease, or stable release was modified. The installer now stages the replacement on the destination filesystem, retains the previous bundle, and attempts rollback, without reading or copying workspace data. `scripts/test-install-macos.zsh` was not run in this checkout: it needs macOS zsh, `/usr/bin/ditto`, and BSD `stat`. Native export/PDF, final package, actual Sequoia and physical-device verification remain pending.
 
 The [web CI workflow](../.github/workflows/web-ci.yml) repeats the existing locked install, tests, build, and locale check on a standard GitHub-hosted Ubuntu runner. It uses pinned official actions and Node, the existing pinned pnpm, read-only token permissions, and no persisted checkout credentials, deployment, secrets, or live accounts. PR merge-result and development-branch head checks remain distinct. Hosted results must be verified for the exact commit; the configuration itself does not establish a pass or any native/runtime coverage.
 
