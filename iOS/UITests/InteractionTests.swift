@@ -163,7 +163,10 @@ final class FreshDocumentPreviewTests: XCTestCase {
         tap("Guardar")
         // Observe the committed-save notification immediately; never retry Save.
         visible("Plantilla guardada")
-        tap("Revisar PDF")
+        // WebKit exposes the aria-pressed preview control as a switch.
+        let previewToggle = app.webViews.switches.matching(NSPredicate(format: "label == %@", "Revisar PDF")).firstMatch
+        ready(previewToggle, label: "Revisar PDF")
+        previewToggle.tap()
 
         let preview = app.webViews.images.matching(NSPredicate(format: "label == %@", "Vista final, página 1")).firstMatch
         XCTAssertTrue(preview.waitForExistence(timeout: 30), "Missing native final preview\n\(app.debugDescription)")
