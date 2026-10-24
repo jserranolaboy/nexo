@@ -54,14 +54,14 @@ export function addPeriod(
 
 export function addPerson(
   workspace: Workspace,
-  input: { id?: string; spaceId: string; name: string },
+  input: { id?: string; spaceId: string; name: string; active?: boolean },
 ): Workspace {
   return draft(workspace, (next) => {
     next.people.push({
       id: canonicalId(input.id ?? newId()),
       spaceId: canonicalId(input.spaceId),
       name: input.name.trim(),
-      active: true,
+      active: input.active ?? true,
     })
   })
 }
@@ -113,9 +113,11 @@ export function createEncounter(
     title: string
     startsAt: string
     componentId: string
+    categoryId?: string | null
     personIds?: string[]
     volunteerCapacity?: number | null
     countsAttendance?: boolean
+    cancelled?: boolean
   },
 ): Workspace {
   return draft(workspace, (next) => {
@@ -125,9 +127,9 @@ export function createEncounter(
       title: input.title.trim(),
       startsAt: input.startsAt,
       componentId: canonicalId(input.componentId),
-      categoryId: null,
+      categoryId: input.categoryId ? canonicalId(input.categoryId) : null,
       countsAttendance: input.countsAttendance ?? true,
-      cancelled: false,
+      cancelled: input.cancelled ?? false,
       volunteerCapacity: input.volunteerCapacity ?? null,
     }
     next.encounters.push(encounter)
@@ -218,6 +220,18 @@ export function finishVolunteer(
   })
 }
 
+export function declineVolunteer(workspace: Workspace, encounterId: string, personId: string): Workspace {
+  return draft(workspace, (next) => {
+    const entry = next.volunteers.find(
+      (item) => item.encounterId === canonicalId(encounterId) && item.personId === canonicalId(personId),
+    )
+    if (!entry || (entry.status !== 'interested' && entry.status !== 'selected')) {
+      throw new DomainError('invalid-transition')
+    }
+    entry.status = 'declined'
+  })
+}
+
 export function linkCollaboration(workspace: Workspace, spaceId: string, pendingUploads: string[] = []): Workspace {
   return draft(workspace, (next) => {
     next.collaboration.push({
@@ -249,6 +263,23 @@ export function recordAlternative(
     const entry = link.entries.find((item) => item.key === input.key)
     if (entry) entry.versions.push({ ...input.version })
     else link.entries.push({ key: input.key, versions: [{ ...input.version }] })
+  })
+}
+
+/** Keeps the chosen version and drops the others. A paused link does not gain an upload. */
+export function chooseAlternative(
+  workspace: Workspace,
+  input: { spaceId: string; key: string; versionId: string },
+): Workspace {
+  return draft(workspace, (next) => {
+    const link = next.collaboration.find((item) => item.spaceId === canonicalId(input.spaceId))
+    if (!link) throw new DomainError('missing-collaboration')
+    const entry = link.entries.find((item) => item.key === input.key)
+    const chosenId = canonicalId(input.versionId)
+    const chosen = entry?.versions.find((version) => canonicalId(version.id) === chosenId)
+    if (!entry || entry.versions.length < 2 || !chosen) throw new DomainError('missing-alternative')
+    entry.versions = [{ id: chosenId, value: chosen.value }]
+    if (link.paused) link.pendingUploads = link.pendingUploads.slice()
   })
 }
 
