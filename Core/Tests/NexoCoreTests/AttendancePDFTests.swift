@@ -25,6 +25,59 @@ final class AttendancePDFTests: XCTestCase {
         return data as Data
     }
 
+    func testSingleLineHeaderTitleMarkersRemainExtractable() throws {
+        try assertHeaderFooterMarkers(headerTitle: "Beginmarker Endmarker")
+    }
+
+    func testLongHeaderTitlePreservesFinalWord() throws {
+        // The current title input permits 300 characters; this is a single line of 201.
+        let title = "Beginmarker " + String(repeating: "planning ", count: 20) + "Endmarker"
+        XCTAssertEqual(title.count, 201)
+        try assertHeaderFooterMarkers(headerTitle: title)
+    }
+
+    func testSingleLineFooterMarkersRemainExtractable() throws {
+        try assertHeaderFooterMarkers(footerText: "Beginmarker Endmarker")
+    }
+
+    func testMultilineFooterPreservesFinalLine() throws {
+        // The current footer textarea permits newlines and up to 1,000 characters.
+        try assertHeaderFooterMarkers(footerText: "Beginmarker\nMiddle line\nEndmarker")
+    }
+
+    private func assertHeaderFooterMarkers(
+        headerTitle: String? = nil, footerText: String? = nil,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let organization = Organization(name: "Synthetic PDF workspace")
+        let component = ActivityComponent(organizationID: organization.id, name: "Synthetic component")
+        let event = ActivityEvent(organizationID: organization.id, title: "Synthetic event",
+                                  startsAt: .now, componentID: component.id)
+        let template = DocumentTemplate(organizationID: organization.id, name: "Header and footer baseline",
+                                        headerTitle: headerTitle, footerText: footerText)
+        var snapshot = WorkspaceSnapshot()
+        snapshot.organizations = [organization]
+        snapshot.components = [component]
+        snapshot.events = [event]
+        snapshot.templates = [template]
+        // Accepted saved input must not silently lose content when rendering succeeds.
+        try WorkspaceRules.validate(snapshot)
+
+        for mode in [AttendancePDFMode.blank, .completed] {
+            let output = FileManager.default.temporaryDirectory
+                .appendingPathComponent("nexo-header-footer-baseline-\(UUID().uuidString).pdf")
+            defer { try? FileManager.default.removeItem(at: output) }
+            try AttendancePDF.render(organization: organization, event: event, entries: [],
+                                     template: template, mode: mode, to: output)
+            let document = try XCTUnwrap(PDFDocument(url: output), file: file, line: line)
+            XCTAssertEqual(document.pageCount, 1, file: file, line: line)
+            let text = try XCTUnwrap(document.string, file: file, line: line)
+            let diagnostic = "\(mode) output: \(String(reflecting: text))"
+            XCTAssertTrue(text.contains("Beginmarker"), diagnostic, file: file, line: line)
+            XCTAssertTrue(text.contains("Endmarker"), diagnostic, file: file, line: line)
+        }
+    }
+
     func testSingleLineFreeTextMarkersRemainExtractable() throws {
         let organization = Organization(name: "Synthetic PDF workspace")
         let component = ActivityComponent(organizationID: organization.id, name: "Synthetic component")
