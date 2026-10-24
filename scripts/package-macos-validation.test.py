@@ -274,6 +274,36 @@ class PackageValidationTests(unittest.TestCase):
         self.assertEqual(str(caught.exception),
                          'Nonportable runtime search path; observed LC_RPATH values: ' + repr(paths))
 
+    def test_binary_accepts_exact_swiftpm_app_contained_runtime_path(self):
+        p.binary_report('platform MACOS\nminos 15.0\n',
+                        'Nexo:\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1.0.0)\n',
+                        'cmd LC_RPATH\ncmdsize 40\npath @executable_path/../lib (offset 12)\n')
+        app = self.root / 'Nexo.app'
+        resolved = (app / 'Contents/MacOS' / '../lib').resolve()
+        self.assertEqual(resolved, app / 'Contents/lib')
+
+    def test_binary_still_refuses_other_runtime_paths_and_traversal(self):
+        for path in ['@executable_path/../../lib', '@executable_path/../lib/..',
+                     '@executable_path/../lib/other', '@loader_path/../lib',
+                     '/Users/runner/build/lib', '/tmp/lib',
+                     '/Applications/Xcode.app/Contents/Developer/lib']:
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, 'Nonportable runtime search path'):
+                p.binary_report('platform MACOS\nminos 15.0\n',
+                                'Nexo:\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1.0.0)\n',
+                                'cmd LC_RPATH\ncmdsize 64\npath ' + path + ' (offset 12)\n')
+
+    def test_app_contained_path_does_not_replace_system_swift_runtime_requirement(self):
+        with self.assertRaisesRegex(ValueError, 'Swift runtime search path missing'):
+            p.binary_report('platform MACOS\nminos 15.0\n',
+                            'Nexo:\n\t@rpath/libswiftCore.dylib (compatibility version 1.0.0, current version 1.0.0)\n',
+                            'cmd LC_RPATH\ncmdsize 40\npath @executable_path/../lib (offset 12)\n')
+
+    def test_bundle_still_forbids_an_app_contained_runtime_directory(self):
+        app, source = self.bundle_fixture('unexpected-runtime')
+        (app / 'Contents/lib').mkdir(mode=0o755)
+        with self.assertRaisesRegex(ValueError, 'Unexpected bundle contents'):
+            p.verify_bundle(app, source)
+
     def image_info(self):
         image=self.root/'image.dmg';image.write_bytes(b'owned')
         mount=self.root/'mount';mount.mkdir()
