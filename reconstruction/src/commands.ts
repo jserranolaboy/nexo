@@ -54,14 +54,14 @@ export function addPeriod(
 
 export function addPerson(
   workspace: Workspace,
-  input: { id?: string; spaceId: string; name: string },
+  input: { id?: string; spaceId: string; name: string; active?: boolean },
 ): Workspace {
   return draft(workspace, (next) => {
     next.people.push({
       id: canonicalId(input.id ?? newId()),
       spaceId: canonicalId(input.spaceId),
       name: input.name.trim(),
-      active: true,
+      active: input.active ?? true,
     })
   })
 }
@@ -113,9 +113,11 @@ export function createEncounter(
     title: string
     startsAt: string
     componentId: string
+    categoryId?: string | null
     personIds?: string[]
     volunteerCapacity?: number | null
     countsAttendance?: boolean
+    cancelled?: boolean
   },
 ): Workspace {
   return draft(workspace, (next) => {
@@ -125,9 +127,9 @@ export function createEncounter(
       title: input.title.trim(),
       startsAt: input.startsAt,
       componentId: canonicalId(input.componentId),
-      categoryId: null,
+      categoryId: input.categoryId ? canonicalId(input.categoryId) : null,
       countsAttendance: input.countsAttendance ?? true,
-      cancelled: false,
+      cancelled: input.cancelled ?? false,
       volunteerCapacity: input.volunteerCapacity ?? null,
     }
     next.encounters.push(encounter)
@@ -215,6 +217,18 @@ export function finishVolunteer(
     )
     if (!entry || entry.status !== 'selected') throw new DomainError('invalid-transition')
     entry.status = participated ? 'completed' : 'noShow'
+  })
+}
+
+export function declineVolunteer(workspace: Workspace, encounterId: string, personId: string): Workspace {
+  return draft(workspace, (next) => {
+    const entry = next.volunteers.find(
+      (item) => item.encounterId === canonicalId(encounterId) && item.personId === canonicalId(personId),
+    )
+    if (!entry || (entry.status !== 'interested' && entry.status !== 'selected')) {
+      throw new DomainError('invalid-transition')
+    }
+    entry.status = 'declined'
   })
 }
 
