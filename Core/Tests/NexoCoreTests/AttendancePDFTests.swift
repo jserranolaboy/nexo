@@ -25,6 +25,34 @@ final class AttendancePDFTests: XCTestCase {
         return data as Data
     }
 
+    func testMultilineFreeTextPreservesFinalLine() throws {
+        let organization = Organization(name: "Synthetic PDF workspace")
+        let component = ActivityComponent(organizationID: organization.id, name: "Synthetic component")
+        let event = ActivityEvent(organizationID: organization.id, title: "Synthetic event",
+                                  startsAt: .now, componentID: component.id)
+        let block = TemplateTextBlock(
+            text: "FREE_TEXT_START\nSecond line\nThird line\nFourth line\nFREE_TEXT_END",
+            x: 46, y: 420, width: 220, fontSize: 12)
+        let template = DocumentTemplate(organizationID: organization.id, name: "Multiline free text",
+                                        textBlocks: [block])
+        var snapshot = WorkspaceSnapshot()
+        snapshot.organizations = [organization]
+        snapshot.components = [component]
+        snapshot.events = [event]
+        snapshot.templates = [template]
+        // This is an accepted saved template, not an invalid geometry fixture.
+        try WorkspaceRules.validate(snapshot)
+
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nexo-multiline-free-text-\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try AttendancePDF.render(organization: organization, event: event, entries: [],
+                                 template: template, mode: .blank, to: file)
+        let text = try XCTUnwrap(PDFDocument(url: file)?.string)
+        XCTAssertTrue(text.contains("FREE_TEXT_START"))
+        XCTAssertTrue(text.contains("FREE_TEXT_END"), "Export must not silently omit valid free text")
+    }
+
     func testImportSkipsSmallPagesAndChosenPageRenders() throws {
         let data = try backgroundPDF(pageSizes: [CGSize(width: 250, height: 300),
                                                  CGSize(width: 612, height: 792)])
