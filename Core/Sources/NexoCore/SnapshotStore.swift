@@ -168,7 +168,11 @@ public final class SnapshotStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        return try encoder.encode(snapshot)
+        let data = try encoder.encode(snapshot)
+        // The persisted date format can collapse valid subsecond intervals.
+        // Refuse unreadable candidates before replacing any saved payload.
+        try WorkspaceRules.validate(try decoder().decode(WorkspaceSnapshot.self, from: data))
+        return data
     }
 
     private func decoder() -> JSONDecoder {
