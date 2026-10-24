@@ -6,6 +6,17 @@ El archivo local se llama `nexo-reconstruction-v1.json`. Los instantes se guarda
 
 La asistencia es `presentes / (presentes + ausentes)`. Si no hay registros computables, el resultado es nulo, no cero. Quien no está en la lista no recibe una ausencia. Duplicar un encuentro crea filas pendientes y no copia las marcas anteriores.
 
+La sugerencia de voluntariado ordena a quien ya está interesado, según participaciones completadas previas del mismo ámbito, y no selecciona a nadie. La elección es un comando aparte. El cupo se rechaza al elegir, al importar y al combinar.
+
+## Voluntariado
+
+Recorrido sintético, y lectura en otro proceso:
+
+```sh
+node --experimental-strip-types src/cli.ts volunteers --directory /tmp/nexo-voluntarios --lang es
+node --experimental-strip-types src/cli.ts volunteers-show --directory /tmp/nexo-voluntarios --lang en
+```
+
 ## Comandos
 
 Hace falta Node `22.23.4`. Desde este directorio:

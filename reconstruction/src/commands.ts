@@ -218,6 +218,18 @@ export function finishVolunteer(
   })
 }
 
+export function declineVolunteer(workspace: Workspace, encounterId: string, personId: string): Workspace {
+  return draft(workspace, (next) => {
+    const entry = next.volunteers.find(
+      (item) => item.encounterId === canonicalId(encounterId) && item.personId === canonicalId(personId),
+    )
+    if (!entry || (entry.status !== 'interested' && entry.status !== 'selected')) {
+      throw new DomainError('invalid-transition')
+    }
+    entry.status = 'declined'
+  })
+}
+
 export function linkCollaboration(workspace: Workspace, spaceId: string, pendingUploads: string[] = []): Workspace {
   return draft(workspace, (next) => {
     next.collaboration.push({
