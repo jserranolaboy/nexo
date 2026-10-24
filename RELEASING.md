@@ -6,10 +6,18 @@ The current Nexo client uses `Core`, `Native`, `Web`, and `iOS`. VRR's ZIP/DMG f
 
 1. Use an isolated copy or branch and synthetic data. Run the [web and native tests](README.md#build-and-test).
 2. Keep versions consistent across `Web/package.json`, `Native/Info.plist`, `iOS/Info.plist`, and `iOS/project.yml`. The iOS plist resolves `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` from the project settings. Record the exact commit and checksums as well as the displayed version.
-3. Review the inputs to `scripts/build-macos.sh`. By default, it installs in `~/Applications/Nexo.app`, retains the previous app, copies an existing primary data file, and verifies that it did not change. Close Nexo first.
+3. Close every Nexo copy that shares the workspace. Before updating, preserve the complete previous app and independently back up `~/Library/Application Support/Valentina-Experience`, including drafts, backups, history, and any private configuration. Keep those copies outside the repository and distribution. Review whether optional configuration must be preserved for a local update without including it in a public package. The installer does not read, copy, or migrate application data.
 4. The script accepts `NEXO_BUILD_DIR` and `NEXO_APP_DIR` (with older `VALENTINA_*` compatibility aliases) to change its outputs. Changing the app's path alone does not isolate its storage. Runtime tests need a separate QA environment; do not open two copies against the same data.
 5. OAuth configuration is excluded by default. Review any explicit `NEXO_GOOGLE_CONFIG`: the builder includes that file as `GoogleOAuth.json`. User credentials are not part of a distribution. Do not read, export, or include tokens when preparing a package.
 6. Inspect the final app's version, web assets, icon, architectures, and signature. The script uses ad-hoc signing by default or the identity in `NEXO_SIGN_IDENTITY`; it does not implement notarization or create Nexo ZIP/DMG files.
+
+## Installer recovery checks
+
+Run `zsh scripts/test-install-macos.zsh` (also included in `make test`) before changing the installer. Its temporary fixtures cover staging, move and signature failures, rollback, both executable names, a process opened during staging, and first installation. It uses a stubbed signature verifier and process inventory; these tests do not establish real signature validity or visual startup.
+
+The builder verifies the staged bundle before replacement. `scripts/install-macos.zsh` stages a second copy on the destination filesystem, verifies it, and checks for the installed executable before and after copying. A destination lock prevents concurrent installer transactions. Successful updates retain the complete old bundle as `Nexo.previous-<unique ID>.app` beside the installed app. Replacement or final verification failure triggers rollback. If the operating system also prevents rollback, the installer reports the retained backup path; inspect the actual destination before retrying. Do not interpret an error as proof that nothing changed. An abrupt power loss or uncatchable process termination can interrupt a transaction; inspect retained transaction/lock directories before taking manual recovery action.
+
+For manual rollback, close all Nexo copies, preserve the rejected new app separately, and restore the retained previous bundle to the exact installation path. Restore the independent support-directory backup only when deliberately reverting data; replacing the app alone must not overwrite newer workspace edits. Keep optional configuration private and do not export Keychain tokens.
 
 ## Before distribution
 

@@ -35,35 +35,9 @@ if [[ -n "${NEXO_GOOGLE_CONFIG:-}" ]]; then
 fi
 codesign --force --sign "${NEXO_SIGN_IDENTITY:--}" "$app"
 codesign --verify --deep --strict "$app"
-mkdir -p "$output_dir"
-# Recognize both the current executable and the previous client's executable.
-if /bin/ps -axo comm= | /usr/bin/awk -v current="$output_dir/Nexo.app/Contents/MacOS/Nexo" -v previous="$output_dir/Nexo.app/Contents/MacOS/ValentinaExperience" '$0 == current || $0 == previous { found = 1 } END { exit !found }'; then
-    print -u2 -- "Close Nexo before installing. The existing installation has been preserved."
-    exit 1
-fi
-# Persistent paths remain compatible with existing Nexo data.
-data_dir="$HOME/Library/Application Support/Valentina-Experience"
-data_file="$data_dir/workspace-v1.json"
-if [[ -f "$data_file" ]]; then
-    data_backup="$HOME/Library/Application Support/Nexo-DataBackups/$(date +%Y%m%d-%H%M%S)"
-    mkdir -p "$data_backup"
-    ditto "$data_file" "$data_backup/workspace-v1.json"
-    print -r -- "Data backup: $data_backup"
-fi
-if [[ -e "$output_dir/Nexo.app" ]]; then
-    backup_dir="$HOME/Library/Application Support/Nexo-AppBuilds"
-    mkdir -p "$backup_dir"
-    mv "$output_dir/Nexo.app" "$backup_dir/Nexo.previous-$(date +%Y%m%d%H%M%S)-$$.app"
-fi
-mv "$app" "$output_dir/Nexo.app"
-if [[ -n "${data_backup:-}" ]]; then
-    if cmp -s "$data_file" "$data_backup/workspace-v1.json"; then
-        print -r -- "Primary data unchanged (cmp)."
-    else
-        print -u2 -- "Data changed during installation. The backup is at $data_backup"
-        exit 1
-    fi
-fi
-version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$output_dir/Nexo.app/Contents/Info.plist")
-build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$output_dir/Nexo.app/Contents/Info.plist")
+# Read bundle metadata before changing an existing installation.
+version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
+build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")
+source "$repo_dir/scripts/install-macos.zsh"
+nexo_install_app "$app" "$output_dir"
 print -r -- "Installed: $output_dir/Nexo.app · $version ($build)"
