@@ -936,3 +936,149 @@ describe('Template element sizing controls', () => {
     expect(width.props.min).toBe(60)
   })
 })
+
+
+describe('Template save and import ordering', () => {
+  function editor() {
+    window.nexoDevice = 'iPhone'
+    const s = fixture(), template = newTemplate('org')
+    template.imageBlocks = [{ id: 'old-image', imageData: 'old', x: 46, y: 46, width: 160, height: 20 }]
+    s.templates = [template]
+    let complete!: () => void, reject!: (error: Error) => void
+    const mutate = vi.fn().mockImplementation(() => new Promise<void>((resolve, fail) => { complete = resolve; reject = fail }))
+    const notify = vi.fn()
+    test.context = { mutate, notify, demo: true, busy: false }
+    const hooks = new test.Hooks()
+    const render = () => component(hooks.render(() => DocumentStudio({ s, orgID: 'org', initial: template, back: vi.fn() })), 'MobileStudio').props
+    return { render, mutate, notify, complete: () => complete(), reject: () => reject(new Error('Synthetic save failed')) }
+  }
+  it.each(['save', 'saveCopy'])('coalesces repeated %s callbacks and waits for the original save', async (action) => {
+    const r = editor(), studio = r.render(), settled = vi.fn()
+    const first = studio[action](), repeated = studio[action]()
+    repeated.then(settled)
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(settled).not.toHaveBeenCalled()
+    expect(r.render().busy).toBe(true)
+    r.complete()
+    await Promise.all([first, repeated])
+    expect(settled).toHaveBeenCalledOnce()
+    expect(r.render().busy).toBe(false)
+    if (action === 'saveCopy') expect(r.render().draft.name.split(tr('· copia'))).toHaveLength(2)
+  })
+  it('shares one failed save with overlapping save/copy callers and permits a deliberate retry', async () => {
+    const r = editor(), studio = r.render()
+    studio.patch({ headerTitle: 'Keep this edit' })
+    const first = r.render().save(), copy = r.render().saveCopy()
+    const results = Promise.allSettled([first, copy])
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    r.reject()
+    expect((await results).map((result) => result.status)).toEqual(['rejected', 'rejected'])
+    expect(r.render().draft.headerTitle).toBe('Keep this edit')
+    expect(r.render().busy).toBe(false)
+    const retry = r.render().save()
+    await flush()
+    expect(r.mutate).toHaveBeenCalledTimes(2)
+    r.complete()
+    await retry
+    expect(r.render().dirty).toBe(false)
+  })
+  it('appends an imported image to the latest list without resurrecting removed images', async () => {
+    const r = editor()
+    let complete!: (value: unknown) => void
+    test.bridge.mockImplementation(() => new Promise((resolve) => { complete = resolve }))
+    const pending = r.render().importImage()
+    r.render().patch({ imageBlocks: [] })
+    complete({ data: 'new-image', width: 160, height: 20 })
+    await pending
+    expect(r.render().draft.imageBlocks).toHaveLength(1)
+    expect(r.render().draft.imageBlocks[0].imageData).toBe('new-image')
+  })
+  it('preserves both out-of-order image imports instead of replacing the first completed image', async () => {
+    const r = editor(), complete: ((value: unknown) => void)[] = []
+    test.bridge.mockImplementation(() => new Promise((resolve) => { complete.push(resolve) }))
+    const first = r.render().importImage(), second = r.render().importImage()
+    complete[1]({ data: 'second-image', width: 100, height: 100 })
+    await second
+    complete[0]({ data: 'first-image', width: 100, height: 100 })
+    await first
+    expect(r.render().draft.imageBlocks.map((image: { imageData: string }) => image.imageData)).toEqual(['old', 'second-image', 'first-image'])
+  })
+  it('fits current text and table edits when a PDF import completes', async () => {
+    const r = editor()
+    let complete!: (value: unknown) => void
+    test.bridge.mockImplementation(() => new Promise((resolve) => { complete = resolve }))
+    const pending = r.render().importPDF()
+    r.render().addText()
+    r.render().patch({ rowHeight: 80, tableTopOffset: 600 })
+    complete({ data: 'pdf', listPageIndex: 0, pages: [{ width: 320, height: 350 }] })
+    await pending
+    const draft = r.render().draft
+    expect(draft.textBlocks).toHaveLength(1)
+    expect(draft.rowHeight).toBe(80)
+    expect(draft.tableTopOffset).toBe(173)
+    expect(draft.textBlocks[0].x + draft.textBlocks[0].width).toBeLessThanOrEqual(320)
+  })
+  it('retains repeated text additions before a rerender', () => {
+    const r = editor(), studio = r.render()
+    const first = studio.addText(), second = studio.addText()
+    expect(r.render().draft.textBlocks.map((text: { id: string }) => text.id)).toEqual([first, second])
+  })
+  it('keeps the most recently requested PDF when imports finish out of order', async () => {
+    const r = editor(), complete: ((value: unknown) => void)[] = []
+    test.bridge.mockImplementation(({ command }) => command === 'importPDF'
+      ? new Promise((resolve) => { complete.push(resolve) }) : Promise.resolve({ image: 'preview', pages: [{ width: 612, height: 792 }] }))
+    const first = r.render().importPDF(), second = r.render().importPDF()
+    complete[1]({ data: 'new-pdf', listPageIndex: 0, pages: [{ width: 612, height: 792 }] })
+    await second
+    complete[0]({ data: 'old-pdf', listPageIndex: 0, pages: [{ width: 612, height: 792 }] })
+    await first
+    expect(r.render().draft.backgroundPDFData).toBe('new-pdf')
+  })
+  it('does not apply a delayed PDF after the user chose blank paper', async () => {
+    const r = editor()
+    let complete!: (value: unknown) => void
+    test.bridge.mockImplementation(() => new Promise((resolve) => { complete = resolve }))
+    const pending = r.render().importPDF()
+    r.render().patch({ backgroundPDFData: undefined, listPageIndex: 0 })
+    complete({ data: 'old-pdf', listPageIndex: 0, pages: [{ width: 612, height: 792 }] })
+    await pending
+    expect(r.render().draft.backgroundPDFData).toBeUndefined()
+  })
+  it.each(['undo', 'redo'])('%s cancels an older pending paper replacement', async (action) => {
+    const r = editor()
+    let complete!: (value: unknown) => void
+    test.bridge.mockImplementation(({ command }) => command === 'importPDF'
+      ? new Promise((resolve) => { complete = resolve }) : Promise.resolve({ image: 'preview', pages: [{ width: 612, height: 792 }] }))
+    r.render().patch({ backgroundPDFData: 'chosen-paper' })
+    if (action === 'redo') r.render().undo()
+    const pending = r.render().importPDF()
+    r.render()[action]()
+    const expected = r.render().draft.backgroundPDFData
+    complete({ data: 'stale-paper', listPageIndex: 0, pages: [{ width: 612, height: 792 }] })
+    await pending
+    expect(r.render().draft.backgroundPDFData).toBe(expected)
+  })
+  it('does not report a superseded PDF import failure as a current error', async () => {
+    const r = editor()
+    let reject!: (error: Error) => void
+    test.bridge.mockImplementation(() => new Promise((_resolve, fail) => { reject = fail }))
+    const pending = r.render().importPDF()
+    r.render().patch({ backgroundPDFData: undefined })
+    reject(new Error('Superseded picker failure'))
+    await pending
+    expect(r.notify).not.toHaveBeenCalled()
+  })
+  it.each(['importImage', 'importPDF'])('canceled %s leaves the latest draft alone', async (action) => {
+    const r = editor()
+    let complete!: (value: unknown) => void
+    test.bridge.mockImplementation(() => new Promise((resolve) => { complete = resolve }))
+    const pending = r.render()[action]()
+    r.render().addText()
+    const expected = r.render().draft
+    complete({ cancelled: true })
+    await pending
+    expect(r.render().draft).toEqual(expected)
+  })
+})

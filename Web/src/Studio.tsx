@@ -56,7 +56,10 @@ export function DocumentStudio({
   recoveredBase?: Template | null
   back: () => void
 }) {
-  const { mutate, busy, notify, demo } = useWorkspace()
+  const { mutate, busy: workspaceBusy, notify, demo } = useWorkspace()
+  const [savingTemplate, setSavingTemplate] = useState(false)
+  const inFlightSave = useRef<Promise<void> | null>(null)
+  const busy = workspaceBusy || savingTemplate
   const compact = useCompactStudio()
   const [startingDraft] = useState(() =>
     structuredClone({
@@ -92,6 +95,7 @@ export function DocumentStudio({
       : recoveredBase,
   )
   const previewVersion = useRef(0)
+  const pdfImportVersion = useRef(0)
   const drag = useRef<{
     kind: string
     id?: string
@@ -154,10 +158,12 @@ export function DocumentStudio({
   useLayoutEffect(() => {
     invalidate()
   }, [previewSource])
-  const patch = (values: Partial<Template>) => {
+  const patch = (values: Partial<Template> | ((current: Template) => Partial<Template>)) => {
     setDraft((d) => {
-      const next = { ...d, ...values }
-      if (values.rowHeight !== undefined || values.tableTopOffset !== undefined)
+      const updates = typeof values === 'function' ? values(d) : values
+      if ('backgroundPDFData' in updates || 'listPageIndex' in updates) pdfImportVersion.current++
+      const next = { ...d, ...updates }
+      if (updates.rowHeight !== undefined || updates.tableTopOffset !== undefined)
         next.tableTopOffset = Math.max(100, Math.min(next.tableTopOffset ?? 100, maximumTableOffset(page, next.rowHeight)))
       return next
     })
@@ -272,6 +278,7 @@ export function DocumentStudio({
     }
   }
   const importPDF = async () => {
+    const version = ++pdfImportVersion.current
     try {
       const result = await native<{
         cancelled?: boolean
@@ -279,14 +286,14 @@ export function DocumentStudio({
         listPageIndex: number
         pages: { width: number; height: number }[]
       }>('importPDF')
-      if (!result.cancelled)
-        patch({
-          ...fitTemplateToPage(draft, result.pages[result.listPageIndex]),
+      if (!result.cancelled && version === pdfImportVersion.current)
+        patch((current) => ({
+          ...fitTemplateToPage(current, result.pages[result.listPageIndex]),
           backgroundPDFData: result.data,
           listPageIndex: result.listPageIndex,
-        })
+        }))
     } catch (e) {
-      notify(String(e), true)
+      if (version === pdfImportVersion.current) notify(String(e), true)
     }
   }
   const importImage = async () => {
@@ -302,7 +309,7 @@ export function DocumentStudio({
       const width = Math.max(20, result.width * scale),
         height = Math.max(20, result.height * scale)
       const block = { id: id(), imageData: result.data, x: 46, y: 46, width, height }
-      patch({ imageBlocks: [...(draft.imageBlocks || []), block] })
+      patch((current) => ({ imageBlocks: [...(current.imageBlocks || []), block] }))
       setSelected(block.id)
       return block.id
     } catch (e) {
@@ -318,19 +325,30 @@ export function DocumentStudio({
       width: Math.min(220, page.width - 92),
       fontSize: 14,
     }
-    patch({ textBlocks: [...(draft.textBlocks || []), block] })
+    patch((current) => ({ textBlocks: [...(current.textBlocks || []), block] }))
     setSelected(block.id)
     return block.id
   }
-  const save = async () => {
+  const saveOnce = (operation: () => Promise<void>): Promise<void> => {
+    if (inFlightSave.current) return inFlightSave.current
+    setSavingTemplate(true)
+    // Install the shared promise before invoking a mutation, even before React rerenders.
+    const request = Promise.resolve().then(operation).finally(() => {
+      inFlightSave.current = null
+      setSavingTemplate(false)
+    })
+    inFlightSave.current = request
+    return request
+  }
+  const save = () => saveOnce(async () => {
     await mutate(
       { kind: 'saveTemplate', entity: draft, expectedTemplate: baseTemplate.current },
       tr('Plantilla guardada'),
     )
     baseTemplate.current = structuredClone(draft)
     setSaved(draft)
-  }
-  const saveCopy = async () => {
+  })
+  const saveCopy = () => saveOnce(async () => {
     const copy = {
       ...structuredClone(draft),
       id: id(),
@@ -340,7 +358,7 @@ export function DocumentStudio({
     baseTemplate.current = structuredClone(copy)
     resetDraft((current) => ({ ...current, id: copy.id, name: current.name + ' ' + tr('· copia') }))
     setSaved(copy)
-  }
+  })
   const render = async () => {
     const version = ++previewVersion.current
     setFinal(null)
@@ -458,10 +476,12 @@ export function DocumentStudio({
           saveCopy={saveCopy}
           undo={() => {
             undo()
+            pdfImportVersion.current++
             invalidate()
           }}
           redo={() => {
             redo()
+            pdfImportVersion.current++
             invalidate()
           }}
           canUndo={canUndo}
