@@ -6,6 +6,12 @@ El archivo local se llama `nexo-reconstruction-v1.json`. Los instantes se guarda
 
 La asistencia es `presentes / (presentes + ausentes)`. Si no hay registros computables, el resultado es nulo, no cero. Quien no está en la lista no recibe una ausencia. Duplicar un encuentro crea filas pendientes y no copia las marcas anteriores.
 
+## Documentos
+
+El borrador documental se guarda en `document-drafts/document.json`. La cuadrícula de páginas queda en `document-drafts/export.json` y, a partir de ella, el archivo que se entrega es `document-drafts/export.pdf`. Ninguno entra en `nexo-reconstruction-v1.json` ni en `revision-copies`.
+
+Ese PDF es un archivo PDF 1.4 con una página por cada página del diseño. Conserva el título, el encabezado, el pie, el contenido y las notas. Si algo no cabe en la página, o un carácter no entra en la codificación WinAnsi de esta fuente, el aviso trae el texto completo y no se reemplazan el PDF anterior ni el borrador. No es el PDF de CoreGraphics ni una hoja de firma de la app de Apple.
+
 ## Comandos
 
 Hace falta Node `22.23.4`. Desde este directorio:

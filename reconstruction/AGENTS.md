@@ -8,7 +8,7 @@ Este archivo manda dentro de `reconstruction/`. El `AGENTS.md` de la raíz remit
 - Los instantes van en UTC canónico. No fijes `America/Puerto_Rico` ni otra zona como regla de producto.
 - La zona del espacio es un dato. La pertenencia a un período compara instantes en un intervalo semiabierto.
 - Una asistencia sin registros computables es nula, no `0 %`.
-- Si un texto no cabe, se informa entero. No se recorta.
+- Si un texto no cabe, se informa entero. No se recorta. El borrador, la cuadrícula y `export.pdf` viven en `document-drafts/` y no entran en las copias del espacio. Ese PDF no es el de CoreGraphics.
 - Un guardado local ya hecho no se convierte en fallo porque después falle Drive.
 - Una restauración no añade subidas.
 - Las pruebas usan datos sintéticos y directorios temporales.
