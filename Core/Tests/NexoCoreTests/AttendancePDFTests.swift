@@ -25,6 +25,49 @@ final class AttendancePDFTests: XCTestCase {
         return data as Data
     }
 
+    func testShortParticipantColumnMarkersRemainExtractable() throws {
+        try assertParticipantColumnMarkers("Beginmarker Endmarker")
+    }
+
+    func testLongParticipantColumnLabelPreservesFinalWord() throws {
+        // The current mobile column input permits 120 characters; this is 111.
+        let label = "Beginmarker " + String(repeating: "planning ", count: 10) + "Endmarker"
+        XCTAssertEqual(label.count, 111)
+        try assertParticipantColumnMarkers(label)
+    }
+
+    private func assertParticipantColumnMarkers(
+        _ label: String, file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let organization = Organization(name: "Synthetic PDF workspace")
+        let component = ActivityComponent(organizationID: organization.id, name: "Synthetic component")
+        let event = ActivityEvent(organizationID: organization.id, title: "Synthetic event",
+                                  startsAt: .now, componentID: component.id)
+        let template = DocumentTemplate(organizationID: organization.id, name: "Column label baseline",
+            columnLabels: ["participant": label, "present": "Presente", "absent": "Ausente",
+                           "excused": "Excusada", "signature": "Firma"])
+        var snapshot = WorkspaceSnapshot()
+        snapshot.organizations = [organization]
+        snapshot.components = [component]
+        snapshot.events = [event]
+        snapshot.templates = [template]
+        try WorkspaceRules.validate(snapshot)
+
+        for mode in [AttendancePDFMode.blank, .completed] {
+            let output = FileManager.default.temporaryDirectory
+                .appendingPathComponent("nexo-column-label-baseline-\(UUID().uuidString).pdf")
+            defer { try? FileManager.default.removeItem(at: output) }
+            try AttendancePDF.render(organization: organization, event: event, entries: [],
+                                     template: template, mode: mode, to: output)
+            let document = try XCTUnwrap(PDFDocument(url: output), file: file, line: line)
+            XCTAssertEqual(document.pageCount, 1, file: file, line: line)
+            let text = try XCTUnwrap(document.string, file: file, line: line)
+            let diagnostic = "\(mode) participant label: \(String(reflecting: text))"
+            XCTAssertTrue(text.contains("Beginmarker"), diagnostic, file: file, line: line)
+            XCTAssertTrue(text.contains("Endmarker"), diagnostic, file: file, line: line)
+        }
+    }
+
     func testSingleLineHeaderTitleMarkersRemainExtractable() throws {
         try assertHeaderFooterMarkers(headerTitle: "Beginmarker Endmarker")
     }
