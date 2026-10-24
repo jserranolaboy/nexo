@@ -2179,6 +2179,10 @@ body {
   pointer-events: none;
   padding: 0 16px;
 }
+/* Keep notices below modal scrims, including retained exit layers. */
+:root:has(.nx-sheet-layer) .nx-toast-region {
+  z-index: 40;
+}
 .layout-wide ~ .nx-toast-region,
 .nx-app.layout-wide .nx-toast-region {
   bottom: calc(24px + var(--safe-bottom));

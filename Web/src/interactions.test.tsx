@@ -2996,3 +2996,43 @@ describe('Event document action accessibility', () => {
     expect(openDocument).toHaveBeenCalledTimes(1)
   })
 })
+
+
+describe('Toast contents and actions across document-sheet dismissal', () => {
+  function harness(toast: { message: string; error?: boolean; undo?: () => void }) {
+    window.innerWidth = 390
+    test.context = { snapshot: fixture(), initialOrganizationID: 'org', drive: emptyDrive,
+      driveBusy: false, demo: true, loading: false, fault: '', busy: false, notify: vi.fn(), toast }
+    const hooks = new test.Hooks()
+    const render = () => hooks.render(() => App())
+    component(render(), 'Agenda').props.select('event')
+    const notification = () => invoke(component(render(), 'Toast'))
+    const sheet = () => find(render(), element => element.type === Sheet && element.props.title === tr('Documento'))
+    return { notification, sheet, open: () => component(render(), 'EventView').props.document() }
+  }
+
+  it.each([false, true])('preserves %s error state and the same Undo action after a Sheet closes', error => {
+    const undo = vi.fn(), r = harness({ message: 'Synthetic reversible notice', error, undo })
+    const notice = () => find(r.notification(), element => element.props.role === (error ? 'alert' : 'status'))
+    expect(notice().props.className).toBe(`nx-toast ${error ? 'error' : ''}`)
+    r.open()
+    expect(r.sheet().props.open).toBe(true)
+    expect(find(notice(), element => element.type === 'span').props.children).toBe('Synthetic reversible notice')
+    expect(undo).not.toHaveBeenCalled()
+    r.sheet().props.onClose()
+    expect(r.sheet().props.open).toBe(false)
+    const action = find(notice(), element => element.type === 'button')
+    expect(action.props.children).toBe(tr('Deshacer'))
+    expect(action.props.onClick).toBe(undo)
+    action.props.onClick()
+    expect(undo).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves an ordinary informational notice without inventing an action', () => {
+    const r = harness({ message: 'Synthetic information' })
+    r.open(); r.sheet().props.onClose()
+    const notice = find(r.notification(), element => element.props.role === 'status')
+    expect(find(notice, element => element.type === 'span').props.children).toBe('Synthetic information')
+    expect(() => find(notice, element => element.type === 'button')).toThrow()
+  })
+})
