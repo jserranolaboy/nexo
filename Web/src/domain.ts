@@ -243,10 +243,21 @@ export function attendanceResult(
     attendanceIndex(s, period, componentID, categoryID).get(memberID) ?? emptyAttendanceResult()
   )
 }
+// Compare JavaScript date instants (millisecond precision), not ISO spellings.
+// Invalid registrations stay visible after dated peers; identity breaks their ties.
+function compareInstants(left: string, right: string) {
+  const a = Date.parse(left),
+    b = Date.parse(right),
+    validA = Number.isFinite(a),
+    validB = Number.isFinite(b)
+  if (validA !== validB) return validA ? -1 : 1
+  return validA ? a - b : 0
+}
 export function volunteerOrder(s: Snapshot, event: Activity, period?: Period) {
   if (
     (period && period.organizationID !== event.organizationID) ||
     event.volunteerCapacity == null ||
+    !Number.isFinite(Date.parse(event.startsAt)) ||
     !inPeriod(event.startsAt, period) ||
     event.isCancelled
   )
@@ -274,14 +285,14 @@ export function volunteerOrder(s: Snapshot, event: Activity, period?: Period) {
             ? [e.startsAt]
             : []
         })
-        .sort()
+        .sort(compareInstants)
       return [{ ...v, member, count: dates.length, last: dates.at(-1) ?? '' }]
     })
     .sort(
       (a, b) =>
         a.count - b.count ||
-        a.last.localeCompare(b.last) ||
-        a.registeredAt.localeCompare(b.registeredAt) ||
+        (a.last && b.last ? compareInstants(a.last, b.last) : a.last ? 1 : b.last ? -1 : 0) ||
+        compareInstants(a.registeredAt, b.registeredAt) ||
         a.memberID.localeCompare(b.memberID),
     )
 }
