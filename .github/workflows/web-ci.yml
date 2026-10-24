@@ -56,8 +56,10 @@ jobs:
       - name: Build
         run: corepack pnpm build
 
-      - name: Browser demo focus and save smoke
-        run: node ../scripts/browser-smoke.mjs
+      - name: Browser editing and recovery smoke
+        run: |
+          node --test ../scripts/browser-recovery-fixture.test.mjs
+          node ../scripts/browser-smoke.mjs
 
       - name: Check locale synchronization
         run: node ../scripts/sync-locales.mjs --check

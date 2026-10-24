@@ -8,6 +8,7 @@ import { createServer } from 'node:net'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
+import { installRecoveryFixture } from './browser-recovery-fixture.mjs'
 
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '../Web')
 const site = 'http://127.0.0.1:4173'
@@ -211,6 +212,51 @@ try {
   await click('[role="dialog"] button[aria-label="Close"]')
   await closedRecord()
   console.log('PASS: attendance dialog focus, Escape save, focus restoration, reopened note, Close')
+
+  // Reload with an entirely synthetic, allowlisted bridge before application modules evaluate.
+  // CDP only installs the fixture; user actions below still use real WebDriver clicks/keys.
+  await command('/goog/cdp/execute', 'POST', {
+    cmd: 'Page.addScriptToEvaluateOnNewDocument',
+    params: { source: `(${installRecoveryFixture.toString()})()` },
+  })
+  await command('/url', 'POST', { url: site })
+  const inspectRecovery = () => observe('return window.__nexoRecoveryFixture.inspect()')
+  const blockedRecovery = async () => {
+    assert.equal(await observe('return document.querySelectorAll(".document-studio, .nx-app, [role=dialog], input").length'), 0)
+    const state = await inspectRecovery()
+    assert.equal(state.calls.filter((call) => call.command === 'draftState').length, 0)
+    assert.deepEqual(state.unexpected, [])
+    return state
+  }
+  await element('[role="status"][aria-label="Opening draft"]')
+  await until('deferred recovery request', async () => (await inspectRecovery()).pending > 0)
+  const original = (await blockedRecovery()).recovery
+  // Resolve/reject only the test transport, never a React handler or application state.
+  await observe('window.__nexoRecoveryFixture.settle("fail")')
+  await element('.nx-recovery [role="alert"]')
+  assert.equal(await observe('return document.querySelector(".nx-recovery [role=alert]").textContent'), 'Synthetic temporary draft read failure')
+  await keys('body', '\uE00C')
+  const failed = await blockedRecovery()
+  assert.deepEqual(failed.recovery, original)
+  const reads = failed.calls.filter((call) => call.command === 'recoverDraft').length
+  await click('//main[contains(@class,"nx-recovery")]/button[normalize-space(.)="Try again"]', 'xpath')
+  await element('[role="status"][aria-label="Opening draft"]')
+  await until('explicit retry makes another deferred read', async () =>
+    (await inspectRecovery()).calls.filter((call) => call.command === 'recoverDraft').length > reads)
+  await blockedRecovery()
+  await observe('window.__nexoRecoveryFixture.settle("recover")')
+  await element('.document-studio input[aria-label="Template name"]')
+  assert.equal(await observe('return document.querySelector(".document-studio input[aria-label=\\"Template name\\"]").value'), original.template.name)
+  await until('recovered dirty draft is preserved', async () =>
+    (await inspectRecovery()).calls.some((call) => call.command === 'draftState'))
+  const recovered = await inspectRecovery()
+  assert.deepEqual(recovered.unexpected, [])
+  assert.deepEqual(recovered.recovery, original)
+  for (const call of recovered.calls.filter((call) => call.command === 'draftState')) {
+    assert.equal(call.dirty, true)
+    for (const [key, value] of Object.entries(original.template)) assert.deepEqual(call.template[key], value)
+  }
+  console.log('PASS: synthetic recovery pending/error block editor and draft writes; explicit Retry restores the original unsaved draft')
 } catch (error) {
   console.error(error)
   if (sessionID && !stop.signal.aborted) {
