@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { draftFromUnknown, layoutDocument, type DocumentDraft, type ExportResult } from './documents.ts'
 import { DomainError } from './errors.ts'
 import type {
   Attendance,
@@ -208,6 +209,48 @@ export class DocumentDraftStore {
       throw new DomainError('invalid-draft')
     }
     return parsed.text
+  }
+
+  documentPath(): string {
+    return path.join(this.directory, 'document-drafts', 'document.json')
+  }
+
+  exportPath(): string {
+    return path.join(this.directory, 'document-drafts', 'export.json')
+  }
+
+  saveDocument(draft: DocumentDraft): DocumentDraft {
+    const saved = draftFromUnknown(draft)
+    this.writeAside(this.documentPath(), { kind: 'nexo-reconstruction-document-draft', ...saved })
+    return saved
+  }
+
+  readDocument(): DocumentDraft | null {
+    if (!existsSync(this.documentPath())) return null
+    const parsed: unknown = JSON.parse(readFileSync(this.documentPath(), 'utf8'))
+    if (!parsed || typeof parsed !== 'object' || !('kind' in parsed) || parsed.kind !== 'nexo-reconstruction-document-draft') {
+      throw new DomainError('invalid-draft')
+    }
+    return draftFromUnknown(parsed)
+  }
+
+  /**
+   * Writes the page record only when every page fits.
+   * A refusal leaves any previous export bytes in place and does not trim the draft.
+   */
+  exportDocument(draft: DocumentDraft): ExportResult {
+    const result = layoutDocument(draft)
+    if (!result.fits || !result.document) return result
+    this.writeAside(this.exportPath(), { kind: 'nexo-reconstruction-document-export', pages: result.document.pages })
+    return result
+  }
+
+  private writeAside(filePath: string, value: unknown): void {
+    if (filePath.includes(`${path.sep}revision-copies${path.sep}`)) throw new DomainError('draft-in-backup')
+    mkdirSync(path.dirname(filePath), { recursive: true })
+    const temporary = `${filePath}.${randomUUID()}.tmp`
+    writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`)
+    renameSync(temporary, filePath)
   }
 }
 
