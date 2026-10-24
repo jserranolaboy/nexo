@@ -25,6 +25,159 @@ final class AttendancePDFTests: XCTestCase {
         return data as Data
     }
 
+    private typealias HeaderFooterFixture = (
+        organization: Organization, event: ActivityEvent, template: DocumentTemplate
+    )
+
+    private func validatedHeaderFooterFixture(
+        headerTitle: String? = nil, footerText: String? = nil,
+        background: Data? = nil, listPageIndex: Int? = nil
+    ) throws -> HeaderFooterFixture {
+        let organization = Organization(name: "Synthetic PDF workspace")
+        let component = ActivityComponent(organizationID: organization.id, name: "Synthetic component")
+        let event = ActivityEvent(organizationID: organization.id, title: "Synthetic event",
+                                  startsAt: .now, componentID: component.id)
+        let template = DocumentTemplate(organizationID: organization.id, name: "Header and footer policy",
+                                        headerTitle: headerTitle, footerText: footerText,
+                                        backgroundPDFData: background, listPageIndex: listPageIndex)
+        var snapshot = WorkspaceSnapshot()
+        snapshot.organizations = [organization]
+        snapshot.components = [component]
+        snapshot.events = [event]
+        snapshot.templates = [template]
+        try WorkspaceRules.validate(snapshot)
+        return (organization, event, template)
+    }
+
+    private func assertHeaderFooterRefusalPreservesOutputs(
+        _ fixture: HeaderFooterFixture, expected: AttendancePDFError,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nexo-header-footer-refusal-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let absent = directory.appendingPathComponent("absent.pdf")
+        let existing = directory.appendingPathComponent("existing.pdf")
+        let original = Data("Existing destination must remain byte-for-byte unchanged".utf8)
+        try original.write(to: existing)
+        for mode in [AttendancePDFMode.blank, .completed] {
+            for destination in [absent, existing] {
+                XCTAssertThrowsError(try AttendancePDF.render(
+                    organization: fixture.organization, event: fixture.event, entries: [],
+                    template: fixture.template, mode: mode, to: destination), file: file, line: line
+                ) { error in
+                    guard let actual = error as? AttendancePDFError else {
+                        return XCTFail("Unexpected error: \(error)", file: file, line: line)
+                    }
+                    switch (expected, actual) {
+                    case (.headerTitleDoesNotFit, .headerTitleDoesNotFit),
+                         (.footerTextDoesNotFit, .footerTextDoesNotFit): break
+                    default: XCTFail("Expected \(expected), got \(actual)", file: file, line: line)
+                    }
+                }
+                XCTAssertFalse(FileManager.default.fileExists(atPath: absent.path),
+                               "Rejected export must not create a destination", file: file, line: line)
+                XCTAssertEqual(try Data(contentsOf: existing), original,
+                               "Rejected export must not truncate an existing destination", file: file, line: line)
+            }
+        }
+    }
+
+    private func assertHeaderFooterMarkersRender(
+        _ fixture: HeaderFooterFixture, selectedPage: Int = 0,
+        pageSize: CGSize = CGSize(width: 612, height: 792),
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        for mode in [AttendancePDFMode.blank, .completed] {
+            let output = FileManager.default.temporaryDirectory
+                .appendingPathComponent("nexo-header-footer-control-\(UUID().uuidString).pdf")
+            defer { try? FileManager.default.removeItem(at: output) }
+            try AttendancePDF.render(organization: fixture.organization, event: fixture.event, entries: [],
+                                     template: fixture.template, mode: mode, to: output)
+            let document = try XCTUnwrap(PDFDocument(url: output), file: file, line: line)
+            XCTAssertEqual(document.pageCount, selectedPage + 1, file: file, line: line)
+            let page = try XCTUnwrap(document.page(at: selectedPage), file: file, line: line)
+            XCTAssertEqual(page.bounds(for: .mediaBox).size, pageSize, file: file, line: line)
+            let text = try XCTUnwrap(page.string, file: file, line: line)
+            let diagnostic = "\(mode) output: \(String(reflecting: text))"
+            XCTAssertTrue(text.contains("Beginmarker"), diagnostic, file: file, line: line)
+            XCTAssertTrue(text.contains("Endmarker"), diagnostic, file: file, line: line)
+            if selectedPage > 0 {
+                let preceding = document.page(at: 0)?.string ?? ""
+                XCTAssertFalse(preceding.contains("Beginmarker"), file: file, line: line)
+                XCTAssertFalse(preceding.contains("Endmarker"), file: file, line: line)
+            }
+        }
+    }
+
+    func testSingleLineHeaderTitleMarkersRemainExtractable() throws {
+        try assertHeaderFooterMarkersRender(validatedHeaderFooterFixture(
+            headerTitle: "Beginmarker Endmarker"))
+    }
+
+    func testSingleLineFooterMarkersRemainExtractable() throws {
+        try assertHeaderFooterMarkersRender(validatedHeaderFooterFixture(
+            footerText: "Beginmarker Endmarker"))
+    }
+
+    func testLongHeaderTitleRefusesWithoutTouchingOutput() throws {
+        // Accepted by the current 300-character title input and saved-template rules.
+        let title = "Beginmarker " + String(repeating: "planning ", count: 20) + "Endmarker"
+        XCTAssertEqual(title.count, 201)
+        let fixture = try validatedHeaderFooterFixture(headerTitle: title, footerText: "Short footer")
+        try assertHeaderFooterRefusalPreservesOutputs(fixture, expected: .headerTitleDoesNotFit)
+    }
+
+    func testMultilineFooterRefusesWithoutTouchingOutput() throws {
+        let fixture = try validatedHeaderFooterFixture(
+            headerTitle: "Short title", footerText: "Beginmarker\nMiddle line\nEndmarker")
+        try assertHeaderFooterRefusalPreservesOutputs(fixture, expected: .footerTextDoesNotFit)
+    }
+
+    func testAbsentOrEmptyHeaderAndFooterStillRender() throws {
+        for value in [String?.none, String?.some("")] {
+            let fixture = try validatedHeaderFooterFixture(headerTitle: value, footerText: value)
+            for mode in [AttendancePDFMode.blank, .completed] {
+                let output = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("nexo-empty-header-footer-\(UUID().uuidString).pdf")
+                defer { try? FileManager.default.removeItem(at: output) }
+                try AttendancePDF.render(organization: fixture.organization, event: fixture.event, entries: [],
+                                         template: fixture.template, mode: mode, to: output)
+                let document = try XCTUnwrap(PDFDocument(url: output))
+                XCTAssertEqual(document.pageCount, 1)
+                let text = try XCTUnwrap(document.string)
+                XCTAssertTrue(text.contains("Nombre"), String(reflecting: text))
+            }
+        }
+    }
+
+    func testHeaderTitleUsesSelectedImportedPageWidth() throws {
+        let title = "Beginmarker Endmarker"
+        let wide = CGSize(width: 920, height: 792)
+        let narrow = CGSize(width: 260, height: 792)
+        // This title fits Letter and the first wide page, but not the selected narrow page.
+        let rejected = try validatedHeaderFooterFixture(headerTitle: title,
+            background: backgroundPDF(pageSizes: [wide, narrow]), listPageIndex: 1)
+        try assertHeaderFooterRefusalPreservesOutputs(rejected, expected: .headerTitleDoesNotFit)
+        let accepted = try validatedHeaderFooterFixture(headerTitle: title,
+            background: backgroundPDF(pageSizes: [narrow, wide]), listPageIndex: 1)
+        try assertHeaderFooterMarkersRender(accepted, selectedPage: 1, pageSize: wide)
+    }
+
+    func testFooterUsesSelectedImportedPageWidth() throws {
+        let footer = "Beginmarker " + String(repeating: "planning ", count: 4) + "Endmarker"
+        let wide = CGSize(width: 920, height: 792)
+        let narrow = CGSize(width: 260, height: 792)
+        // The footer's reserved width is max(100, pageWidth - 182), not the title width.
+        let rejected = try validatedHeaderFooterFixture(footerText: footer,
+            background: backgroundPDF(pageSizes: [wide, narrow]), listPageIndex: 1)
+        try assertHeaderFooterRefusalPreservesOutputs(rejected, expected: .footerTextDoesNotFit)
+        let accepted = try validatedHeaderFooterFixture(footerText: footer,
+            background: backgroundPDF(pageSizes: [narrow, wide]), listPageIndex: 1)
+        try assertHeaderFooterMarkersRender(accepted, selectedPage: 1, pageSize: wide)
+    }
+
     func testSingleLineFreeTextMarkersRemainExtractable() throws {
         let organization = Organization(name: "Synthetic PDF workspace")
         let component = ActivityComponent(organizationID: organization.id, name: "Synthetic component")

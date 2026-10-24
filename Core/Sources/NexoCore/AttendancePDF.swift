@@ -20,6 +20,8 @@ public enum AttendancePDFError: Error, Sendable {
     case invalidColumnLayout
     case invalidBackgroundPDF
     case textDoesNotFit
+    case headerTitleDoesNotFit
+    case footerTextDoesNotFit
 }
 
 /// The paper editor and the exported PDF use these same row heights and page breaks.
@@ -128,6 +130,14 @@ public enum AttendancePDF {
                                     minimumRowHeight: template.rowHeight,
                                     tableTopOffset: template.tableTopOffset ?? 122,
                                     pageSize: page.size, mode: mode)
+        // Fixed title/footer bands cannot grow without changing the document's
+        // layout. Refuse clipping before opening or replacing any output file.
+        try validateFixedText(template.headerTitle, in: headerTitleRect(page: page),
+                              font: .systemFont(ofSize: 22, weight: .semibold), color: ink,
+                              error: .headerTitleDoesNotFit)
+        try validateFixedText(template.footerText, in: footerTextRect(pageWidth: page.width),
+                              font: .systemFont(ofSize: 9), color: mutedInk,
+                              error: .footerTextDoesNotFit)
         // Preflight every overlay before opening the destination, including later
         // blocks, so refusing an overflowing draft cannot truncate an existing PDF.
         let textLayouts = try (template.textBlocks ?? []).filter { !$0.text.isEmpty }.map { block in
@@ -236,10 +246,17 @@ public enum AttendancePDF {
         return weights.map { ($0 / total) * (pageWidth - margin * 2) }
     }
 
+    private static func headerTitleRect(page: CGRect) -> CGRect {
+        CGRect(x: margin, y: page.height - 86, width: page.width - margin * 2, height: 31)
+    }
+
+    private static func footerTextRect(pageWidth: CGFloat) -> CGRect {
+        CGRect(x: margin, y: 38, width: max(100, pageWidth - margin * 2 - 90), height: 16)
+    }
+
     private static func drawHeader(_ template: DocumentTemplate, page: CGRect) {
         if let title = template.headerTitle, !title.isEmpty {
-            draw(title, in: CGRect(x: margin, y: page.height - 86,
-                                   width: page.width - margin * 2, height: 31),
+            draw(title, in: headerTitleRect(page: page),
                  font: .systemFont(ofSize: 22, weight: .semibold), color: ink)
         }
         if let subtitle = template.headerSubtitle, !subtitle.isEmpty {
@@ -343,8 +360,7 @@ public enum AttendancePDF {
     private static func drawFooter(template: DocumentTemplate, pageNumber: Int,
                                    pageWidth: CGFloat, language: String) {
         if let footer = template.footerText, !footer.isEmpty {
-            draw(footer, in: CGRect(x: margin, y: 38,
-                                    width: max(100, pageWidth - margin * 2 - 90), height: 16),
+            draw(footer, in: footerTextRect(pageWidth: pageWidth),
                  font: .systemFont(ofSize: 9), color: mutedInk)
         }
         if template.showsPageNumber == true {
@@ -379,6 +395,25 @@ public enum AttendancePDF {
         guard height.isFinite, height > 0, block.y + height <= pageSize.height
         else { throw AttendancePDFError.textDoesNotFit }
         return height
+    }
+
+    private static func validateFixedText(
+        _ text: String?, in rect: CGRect, font: PaperFont, color: PaperColor,
+        error: AttendancePDFError
+    ) throws {
+        guard let text, !text.isEmpty else { return }
+        guard rect.width.isFinite, rect.height.isFinite, rect.width > 0, rect.height > 0
+        else { throw error }
+        let bounds = (text as NSString).boundingRect(
+            with: CGSize(width: rect.width, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: textAttributes(font: font, color: color), context: nil)
+        // Bounding widths can include trailing whitespace outside the constraint;
+        // this policy checks vertical fit without imposing a new text-width limit.
+        guard bounds.width.isFinite, bounds.height.isFinite,
+              bounds.width >= 0, bounds.height >= 0,
+              bounds.height.rounded(.up) <= rect.height
+        else { throw error }
     }
 
     private static func draw(
