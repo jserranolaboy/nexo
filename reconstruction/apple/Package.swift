@@ -3,12 +3,14 @@ import PackageDescription
 
 let package = Package(
     name: "nexo-adapter",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v15), .iOS(.v18)],
     products: [
-        .executable(name: "nexo-adapter", targets: ["NexoAdapter"])
+        .executable(name: "nexo-adapter", targets: ["NexoAdapter"]),
+        .library(name: "NexoAdapterIOS", type: .static, targets: ["NexoAdapterKit"])
     ],
     targets: [
-        .executableTarget(name: "NexoAdapter"),
+        .target(name: "NexoAdapterKit"),
+        .executableTarget(name: "NexoAdapter", dependencies: ["NexoAdapterKit"]),
         .testTarget(name: "NexoAdapterTests")
     ]
 )

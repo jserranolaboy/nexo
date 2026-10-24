@@ -4,7 +4,7 @@ Este archivo manda dentro de `reconstruction/`. El `AGENTS.md` de la raíz remit
 
 - El núcleo de este directorio es la autoridad de las reglas nuevas.
 - No edites `Core`, `Native`, `Web` ni `iOS` para repetir una regla de este núcleo.
-- `apple/` es el adaptador de Mac. Invoca este núcleo con Node y no copia las reglas. Solo escribe en un directorio temporal sintético.
+- `apple/` es el adaptador. En Mac invoca este núcleo con Node y no copia las reglas. Solo escribe en un directorio temporal sintético. `NexoAdapterIOS` compila la misma orden para el simulador y no lo arranca.
 - No leas ni escribas `workspace-v1.json`, `vrr-data.json`, espacios reales, cuentas ni OAuth.
 - Los instantes van en UTC canónico. No fijes `America/Puerto_Rico` ni otra zona como regla de producto.
 - La zona del espacio es un dato. La pertenencia a un período compara instantes en un intervalo semiabierto.

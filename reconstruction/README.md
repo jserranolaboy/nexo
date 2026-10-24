@@ -37,7 +37,13 @@ El cliente legado sigue dependiendo de un Mac con Xcode, como describe el README
 make test-adapter
 ```
 
-Eso equivale a `xcodebuild -scheme nexo-adapter -destination 'platform=macOS'` dentro de `apple/`, con datos derivados en `/tmp/nexo-adapter-dd`. El simulador de iPhone o iPad no forma parte de este adaptador.
+Eso equivale a `xcodebuild -scheme nexo-adapter-Package -destination 'platform=macOS'` dentro de `apple/`, con datos derivados en `/tmp/nexo-adapter-dd`.
+
+`NexoAdapterIOS` es la misma orden para iPhone e iPad. Compila contra el SDK del simulador y no lanza Node. Si el runtime no está instalado, el esquema solo se compila:
+
+```sh
+make build-adapter-ios
+```
 
 ## Autoridad
 
