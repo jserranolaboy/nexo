@@ -1,6 +1,6 @@
 # Nexo for iPhone and iPad
 
-UIKit container for the same Nexo React interface, with native persistence and PDF generation. Configured minimum deployment target: iOS/iPadOS 18; development source version 0.4.1 (11), unreleased. This does not prove execution on every device or a TestFlight delivery.
+UIKit container for the same Nexo React interface, with native persistence and PDF generation. Configured minimum deployment target: iOS/iPadOS 18; development source version 0.4.1 (12). This does not prove execution on every device or a TestFlight delivery.
 
 ## Prepare and build
 
@@ -29,9 +29,9 @@ On portrait iPad, the agenda and event appear together with bottom tabs; layouts
 
 Data is stored in `Library/Application Support/Nexo/workspace-v1.json` inside the app container. Drafts are stored separately, and JSON backups share the Nexo Mac format. See [storage and limitations](../docs/DEVELOPMENT.md#storage-and-recovery).
 
-The shared suites ran on Mac. After consolidation, generic iOS Simulator compilation and unit-target `build-for-testing` passed with `CODE_SIGNING_ALLOWED=NO`. iOS tests were compiled, not executed. Installation, startup, visual interaction, and physical-device verification remain pending.
+Native CI on the development branch runs the iOS unit tests, a fresh-install persistence pass, and a native PDF preview smoke on a disposable simulator. Those results belong to one commit; read that run before relying on them. Physical devices, installation onto a personal device, and TestFlight remain unverified.
 
-To compile without installing or using a signing identity, from the repository root:
+The earlier consolidation environment had no simulator runtime, so it only compiled the app and unit targets with `CODE_SIGNING_ALLOWED=NO`. To repeat that compile locally, from the repository root:
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
@@ -39,5 +39,3 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath /tmp/nexo-ios-build CODE_SIGNING_ALLOWED=NO build
 ```
-
-The phase-2 app and unit-test targets also passed `build-for-testing`. No simulator runtime was installed in the verification environment (`simctl list runtimes` returned an empty list), so no iOS tests or app startup were executed. No runtime was downloaded.
