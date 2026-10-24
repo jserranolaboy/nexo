@@ -58,7 +58,7 @@ jobs:
 
       - name: Browser editing and recovery smoke
         run: |
-          node --test ../scripts/browser-recovery-fixture.test.mjs ../scripts/smoke-process.test.mjs
+          node --test ../scripts/browser-recovery-fixture.test.mjs ../scripts/browser-request.test.mjs ../scripts/smoke-process.test.mjs
           node ../scripts/browser-smoke.mjs
 
       - name: Check locale synchronization

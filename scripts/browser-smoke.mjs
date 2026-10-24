@@ -50,11 +50,14 @@ function healthy() {
 
 async function request(path, method = 'GET', body, cleanup = false) {
   if (!cleanup) healthy()
+  // ChromeDriver allows up to 60 seconds to start Chrome. A ready /status is
+  // not a ready browser; keep this one allowance inside the overall deadline.
+  const timeout = method === 'POST' && path === '/session' ? 60_000 : 10_000
   const response = await fetch(driverURL + path, {
     method,
     headers: { 'Content-Type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    signal: cleanup ? AbortSignal.timeout(5_000) : AbortSignal.any([stop.signal, AbortSignal.timeout(10_000)]),
+    signal: cleanup ? AbortSignal.timeout(5_000) : AbortSignal.any([stop.signal, AbortSignal.timeout(timeout)]),
   })
   const data = await response.json()
   if (!response.ok || data.value?.error) {
