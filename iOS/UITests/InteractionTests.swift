@@ -31,7 +31,10 @@ final class FreshInstallSmokeTests: XCTestCase {
                 predicate: NSPredicate(format: "exists == true AND enabled == true AND hittable == true"),
                 object: element
             )
-            let result = XCTWaiter.wait(for: [ready], timeout: 15)
+            // A single hosted accessibility evaluation can consume nearly 15 seconds.
+            let started = ProcessInfo.processInfo.systemUptime
+            let result = XCTWaiter.wait(for: [ready], timeout: 30)
+            print("Readiness observation for \(label): \(result), \(ProcessInfo.processInfo.systemUptime - started)s")
             XCTAssertEqual(result, .completed, "Control is not ready: \(label)\n\(app.debugDescription)", file: file, line: line)
         }
         func tap(_ label: String, file: StaticString = #filePath, line: UInt = #line) {
@@ -112,8 +115,11 @@ final class FreshDocumentPreviewTests: XCTestCase {
                 predicate: NSPredicate(format: "exists == true AND enabled == true AND hittable == true"),
                 object: element
             )
-            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 15), .completed,
-                           "Control is not ready: \(label)\n\(app.debugDescription)", file: file, line: line)
+            // Keep the complete readiness condition while allowing a costly AX observation.
+            let started = ProcessInfo.processInfo.systemUptime
+            let result = XCTWaiter.wait(for: [expectation], timeout: 30)
+            print("Readiness observation for \(label): \(result), \(ProcessInfo.processInfo.systemUptime - started)s")
+            XCTAssertEqual(result, .completed, "Control is not ready: \(label)\n\(app.debugDescription)", file: file, line: line)
         }
         func tap(_ label: String, file: StaticString = #filePath, line: UInt = #line) {
             let control = button(label)
