@@ -1,4 +1,5 @@
 import { describeCollaboration, resolvePausedAlternative, runCollaborationJourney } from './collaboration-journey.ts'
+import { describeInterface, runInterface } from './interface.ts'
 import { describeJourney, runFirstJourney } from './journey.ts'
 import { migrateLegacyFile, revertToPreviousCopy } from './migrate.ts'
 import { describeVolunteers, runVolunteerJourney } from './volunteer-journey.ts'
@@ -6,7 +7,7 @@ import { describeVolunteers, runVolunteerJourney } from './volunteer-journey.ts'
 const messages = {
   es: {
     usage:
-      'Uso: journey | volunteers | show | volunteers-show | collaborate | collaborate-show --directory DIR [--lang es|en] | collaborate-choose --directory DIR --version ID [--lang es|en] | migrate --directory DIR --source workspace-v1.json [--lang es|en] | migrate-revert --directory DIR [--lang es|en]',
+      'Uso: journey | show | volunteers | volunteers-show | collaborate | collaborate-show | interface | interface-show --directory DIR [--lang es|en] | collaborate-choose --directory DIR --version ID [--lang es|en] | migrate --directory DIR --source workspace-v1.json [--lang es|en] | migrate-revert --directory DIR [--lang es|en]',
     saved: 'Espacio sintético guardado. La asistencia queda en el archivo local.',
     volunteers: 'Voluntariado sintético guardado. La selección quedó en el archivo local.',
     kept: 'Guardado local conservado. El puerto de sincronización falló después.',
@@ -16,7 +17,7 @@ const messages = {
   },
   en: {
     usage:
-      'Usage: journey | volunteers | show | volunteers-show | collaborate | collaborate-show --directory DIR [--lang es|en] | collaborate-choose --directory DIR --version ID [--lang es|en] | migrate --directory DIR --source workspace-v1.json [--lang es|en] | migrate-revert --directory DIR [--lang es|en]',
+      'Usage: journey | show | volunteers | volunteers-show | collaborate | collaborate-show | interface | interface-show --directory DIR [--lang es|en] | collaborate-choose --directory DIR --version ID [--lang es|en] | migrate --directory DIR --source workspace-v1.json [--lang es|en] | migrate-revert --directory DIR [--lang es|en]',
     saved: 'Synthetic space saved. Attendance remains in the local file.',
     volunteers: 'Synthetic volunteering saved. The selection remains in the local file.',
     kept: 'Local save kept. The sync port failed afterwards.',
@@ -67,6 +68,10 @@ if (!parsed.command || !parsed.directory) {
 } else if (parsed.command === 'migrate-revert') {
   revertToPreviousCopy(parsed.directory)
   process.stdout.write(`${copy.reverted}\n`)
+} else if (parsed.command === 'interface') {
+  process.stdout.write(`${runInterface(parsed.directory, parsed.lang)}\n`)
+} else if (parsed.command === 'interface-show') {
+  process.stdout.write(`${describeInterface(parsed.directory, parsed.lang)}\n`)
 } else {
   process.stderr.write(`${copy.usage}\n`)
   process.exitCode = 1

@@ -30,6 +30,41 @@ final class JourneyTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: primary), before)
     }
 
+    func testInterfaceIsReadByAnotherProcess() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nexo-adapter-interface-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let binary = try adapterBinary()
+        let kernel = reconstructionDirectory().path
+        let wrote = try launch(binary, ["interface", "--directory", directory.path, "--kernel", kernel, "--lang", "es"])
+        XCTAssertEqual(wrote.status, 0, wrote.error)
+        XCTAssertNotEqual(wrote.pid, ProcessInfo.processInfo.processIdentifier)
+        assertInterface(wrote.output, restarted: false)
+
+        let read = try launch(binary, ["interface-show", "--directory", directory.path, "--kernel", kernel, "--lang", "es"])
+        XCTAssertEqual(read.status, 0, read.error)
+        XCTAssertNotEqual(read.pid, wrote.pid)
+        assertInterface(read.output, restarted: true)
+
+        let english = try launch(binary, ["interface-show", "--directory", directory.path, "--kernel", kernel, "--lang", "en"])
+        XCTAssertEqual(english.status, 0, english.error)
+        XCTAssertNotEqual(english.pid, read.pid)
+        XCTAssertTrue(english.output.contains("Persona Alfa: present; 1/1"), english.output)
+        XCTAssertTrue(english.output.contains("Persona Gamma: no record; no countable encounters"), english.output)
+        XCTAssertFalse(english.output.contains("Persona Gamma: absent"))
+        XCTAssertTrue(english.output.contains("Does not fit: Persona Alfa\nLinea uno\nLinea dos\nLinea tres\nLinea cuatro"), english.output)
+        XCTAssertTrue(english.output.contains("Suggestion: Persona Tardía"), english.output)
+        XCTAssertTrue(english.output.contains("selected in Encuentro actual"), english.output)
+        XCTAssertTrue(english.output.contains("Quota refusal: capacity-exceeded"), english.output)
+        XCTAssertTrue(english.output.contains("Sync: paused"), english.output)
+        XCTAssertTrue(english.output.contains("Pending uploads: none"), english.output)
+        XCTAssertTrue(english.output.contains("alternativa-local"), english.output)
+        XCTAssertFalse(english.output.contains("alternativa-remota"))
+        XCTAssertFalse(english.output.contains("Persona Beta: present"))
+    }
+
     func testRealDataDirectoriesAreRefused() throws {
         let binary = try adapterBinary()
         let kernel = reconstructionDirectory().path
@@ -39,6 +74,30 @@ final class JourneyTests: XCTestCase {
         XCTAssertNotEqual(result.status, 0)
         XCTAssertTrue(result.error.contains("rechazado"), result.error)
         XCTAssertFalse(FileManager.default.fileExists(atPath: refused))
+    }
+}
+
+private func assertInterface(_ output: String, restarted: Bool) {
+    XCTAssertTrue(output.contains("Persona Alfa: presente; 1/1"), output)
+    XCTAssertTrue(output.contains("Persona Beta: ausente; 0/1"), output)
+    XCTAssertTrue(output.contains("Persona Gamma: sin registro; sin encuentros evaluables"), output)
+    XCTAssertFalse(output.contains("Persona Gamma: ausente"))
+    XCTAssertFalse(output.contains("Persona Beta: presente"))
+    XCTAssertTrue(output.contains("Borrador: Nota breve"), output)
+    XCTAssertTrue(output.contains("PDF: export.pdf"), output)
+    XCTAssertTrue(output.contains("No cabe: Persona Alfa\nLinea uno\nLinea dos\nLinea tres\nLinea cuatro"), output)
+    XCTAssertTrue(output.contains("Sugerencia: Persona Tardía"), output)
+    XCTAssertTrue(output.contains("Persona Cero: seleccionado en Encuentro actual"), output)
+    XCTAssertTrue(output.contains("Rechazo de cupo: capacity-exceeded"), output)
+    XCTAssertTrue(output.contains("Sincronización: en pausa"), output)
+    XCTAssertTrue(output.contains("Subidas pendientes: ninguna"), output)
+    XCTAssertTrue(output.contains("alternativa-local"), output)
+    if restarted {
+        XCTAssertFalse(output.contains("alternativa-remota"))
+    } else {
+        XCTAssertTrue(output.contains("alternativa-remota"), output)
+        XCTAssertTrue(output.contains("Alternativa elegida: alternativa-local"), output)
+        XCTAssertTrue(output.contains("Copia nueva anterior restaurada"), output)
     }
 }
 

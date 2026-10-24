@@ -15,7 +15,7 @@ public struct KernelCommand: Sendable {
 }
 
 public enum NexoAdapterKit {
-    public static let usage = "Uso: nexo-adapter journey|show --directory DIR --kernel DIR [--node PATH] [--lang es|en]"
+    public static let usage = "Uso: nexo-adapter COMANDO --directory DIR --kernel DIR [--node PATH] [--lang es|en] [--source PATH] [--version ID]"
 
     public static func command(_ arguments: [String]) throws -> KernelCommand {
         let invocation = try parse(arguments)
@@ -24,15 +24,18 @@ public enum NexoAdapterKit {
         guard FileManager.default.isReadableFile(atPath: cli.path) else {
             throw AdapterError("No está el núcleo: \(cli.path)")
         }
+        var forwarded = [
+            "--experimental-strip-types",
+            cli.path,
+            invocation.command,
+            "--directory", invocation.directory.path,
+            "--lang", invocation.lang,
+        ]
+        if !invocation.source.isEmpty { forwarded.append(contentsOf: ["--source", invocation.source]) }
+        if !invocation.version.isEmpty { forwarded.append(contentsOf: ["--version", invocation.version]) }
         return KernelCommand(
             node: invocation.node,
-            arguments: [
-                "--experimental-strip-types",
-                cli.path,
-                invocation.command,
-                "--directory", invocation.directory.path,
-                "--lang", invocation.lang,
-            ],
+            arguments: forwarded,
             workingDirectory: invocation.kernel
         )
     }
@@ -44,16 +47,20 @@ private struct Invocation {
     var kernel: URL
     var node: URL
     var lang: String
+    var source: String
+    var version: String
 }
 
 private func parse(_ arguments: [String]) throws -> Invocation {
-    guard let command = arguments.first, command == "journey" || command == "show" else {
+    guard let command = arguments.first, !command.isEmpty, !command.hasPrefix("-") else {
         throw AdapterError(NexoAdapterKit.usage)
     }
     var directory = ""
     var kernel = ProcessInfo.processInfo.environment["NEXO_KERNEL"] ?? ""
     var node = ProcessInfo.processInfo.environment["NEXO_NODE"] ?? ""
     var lang = "es"
+    var source = ""
+    var version = ""
     var index = 1
     while index < arguments.count {
         let token = arguments[index]
@@ -66,6 +73,8 @@ private func parse(_ arguments: [String]) throws -> Invocation {
         case "--kernel": kernel = value
         case "--node": node = value
         case "--lang": lang = value
+        case "--source": source = value
+        case "--version": version = value
         default: throw AdapterError(NexoAdapterKit.usage)
         }
     }
@@ -77,7 +86,9 @@ private func parse(_ arguments: [String]) throws -> Invocation {
         directory: URL(fileURLWithPath: directory),
         kernel: URL(fileURLWithPath: kernel),
         node: try resolveNode(node),
-        lang: lang
+        lang: lang,
+        source: source,
+        version: version
     )
 }
 

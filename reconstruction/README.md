@@ -61,9 +61,18 @@ node --experimental-strip-types src/cli.ts show --directory /tmp/nexo-synthetic 
 
 El cliente legado sigue dependiendo de un Mac con Xcode, como describe el README de la raíz. Este paquete no lo sustituye.
 
+## Interfaz
+
+Un proceso guarda asistencia, borrador, PDF, voluntariado, colaboración y migración. Otro proceso los lee. El aviso de lo que no cabe trae el texto completo.
+
+```sh
+node --experimental-strip-types src/cli.ts interface --directory /tmp/nexo-interfaz --lang es
+node --experimental-strip-types src/cli.ts interface-show --directory /tmp/nexo-interfaz --lang en
+```
+
 ## Adaptador de Mac
 
-`apple/` no tiene reglas de dominio. El ejecutable `nexo-adapter` llama a `src/cli.ts`. Un proceso ejecuta `journey` y otro `show`. El directorio es temporal y los datos son los sintéticos del núcleo. No abre Application Support, no firma con Developer ID y no publica.
+`apple/` no tiene reglas de dominio. El ejecutable `nexo-adapter` reenvía el comando, `--source` y `--version` a `src/cli.ts`. Un proceso ejecuta `interface` y otro `interface-show`. El directorio es temporal y los datos son los sintéticos del núcleo. No abre Application Support, no firma con Developer ID y no publica.
 
 `xcode-select` puede seguir en Command Line Tools. La compilación usa Xcode por `DEVELOPER_DIR`:
 
