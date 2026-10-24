@@ -78,6 +78,100 @@ final class FreshInstallSmokeTests: XCTestCase {
     }
 }
 
+/// Preview-only integration on a separate NEW account-free hosted simulator.
+/// This never opens an export picker, sends a file, or injects application data.
+@MainActor
+final class FreshDocumentPreviewTests: XCTestCase {
+    func testBlankDocumentRendersNativeFinalPreview() throws {
+        #if !targetEnvironment(simulator)
+        throw XCTSkip("Document preview mutations require a disposable simulator")
+        #endif
+        continueAfterFailure = false
+        guard ProcessInfo.processInfo.environment["NEXO_FRESH_PDF_PREVIEW"] == "1" else {
+            XCTFail("Use the hosted CI helper to create a new isolated preview simulator")
+            return
+        }
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(es)", "-AppleLocale", "es_PR"]
+        defer { app.terminate() }
+        let suffix = String(UUID().uuidString.prefix(8))
+        let spaceName = "Nexo PDF Space \(suffix)"
+        let eventName = "Nexo PDF Event \(suffix)"
+        let componentName = "Nexo PDF Component \(suffix)"
+
+        func button(_ label: String) -> XCUIElement {
+            app.webViews.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
+        }
+        func visible(_ label: String, file: StaticString = #filePath, line: UInt = #line) {
+            let element = app.webViews.descendants(matching: .any)
+                .matching(NSPredicate(format: "label == %@", label)).firstMatch
+            XCTAssertTrue(element.waitForExistence(timeout: 15), "Missing \(label)\n\(app.debugDescription)", file: file, line: line)
+        }
+        func ready(_ element: XCUIElement, label: String, file: StaticString = #filePath, line: UInt = #line) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "exists == true AND enabled == true AND hittable == true"),
+                object: element
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 15), .completed,
+                           "Control is not ready: \(label)\n\(app.debugDescription)", file: file, line: line)
+        }
+        func tap(_ label: String, file: StaticString = #filePath, line: UInt = #line) {
+            let control = button(label)
+            ready(control, label: label, file: file, line: line)
+            control.tap()
+        }
+        @discardableResult
+        func type(_ value: String, into label: String, file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+            let field = app.webViews.textFields.matching(NSPredicate(format: "label == %@", label)).firstMatch
+            ready(field, label: label, file: file, line: line)
+            field.tap()
+            field.typeText(value)
+            let complete = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", value), object: field)
+            XCTAssertEqual(XCTWaiter.wait(for: [complete], timeout: 8), .completed,
+                           "Incomplete input for \(label)\n\(app.debugDescription)", file: file, line: line)
+            XCTAssertEqual(field.value as? String, value, file: file, line: line)
+            return field
+        }
+
+        app.launch()
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 30))
+        tap("Crear espacio")
+        type(spaceName, into: "Nombre del espacio")
+        tap("Crear")
+        visible(spaceName)
+
+        tap("Nuevo encuentro")
+        type(eventName, into: "Nombre del encuentro")
+        tap("Crear componente")
+        let componentField = type(componentName, into: "Crear componente")
+        // One Return submits only the inline component, not the event form.
+        componentField.typeText("\n")
+        visible(componentName)
+        tap("Crear")
+        visible(eventName)
+
+        tap("Documento")
+        tap("Hoja en blanco")
+        tap("Guardar")
+        // Observe the committed-save notification immediately; never retry Save.
+        visible("Plantilla guardada")
+        tap("Revisar PDF")
+
+        let preview = app.webViews.images.matching(NSPredicate(format: "label == %@", "Vista final, página 1")).firstMatch
+        XCTAssertTrue(preview.waitForExistence(timeout: 30), "Missing native final preview\n\(app.debugDescription)")
+        XCTAssertFalse(preview.frame.isEmpty)
+        visible("1 / 1")
+        // Readiness is asserted without tapping: no document picker or outbound export.
+        ready(button("Compartir PDF"), label: "Compartir PDF")
+        for label in ["Página anterior", "Página siguiente"] {
+            let control = button(label)
+            XCTAssertTrue(control.waitForExistence(timeout: 15), "Missing \(label)\n\(app.debugDescription)")
+            XCTAssertFalse(control.isEnabled, "A one-page preview must not enable \(label)")
+        }
+        XCTAssertFalse(button("Volver al diseño").exists, "The final preview must not be an error state")
+    }
+}
+
 /// Run only on a simulator populated with synthetic data using seed-simulator.mjs.
 /// These tests do not connect an account or upload files.
 @MainActor

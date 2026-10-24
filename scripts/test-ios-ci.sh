@@ -49,6 +49,11 @@ if [[ "${1:-}" == --ui-smoke && $# == 1 ]]; then
   device_name='Nexo CI fresh-install smoke'
   # xcodebuild strips TEST_RUNNER_ when forwarding this test-only safety marker.
   export TEST_RUNNER_NEXO_FRESH_SIMULATOR_SMOKE=1
+elif [[ "${1:-}" == --pdf-preview-smoke && $# == 1 ]]; then
+  scheme=NexoInteraction
+  selection=(-only-testing:NexoUITests/FreshDocumentPreviewTests/testBlankDocumentRendersNativeFinalPreview)
+  device_name='Nexo CI native PDF preview'
+  export TEST_RUNNER_NEXO_FRESH_PDF_PREVIEW=1
 elif [[ $# != 0 ]]; then
   echo "Unsupported arguments." >&2
   exit 1
@@ -100,8 +105,8 @@ valid_device "$device" || {
 printf '%s\n' "$device" > "$state_file"
 echo "Created job-owned simulator $device"
 
-# Both selections use ONLY this fresh simulator's empty app container/Keychain.
-# The UI selection is one fresh-install test, never the old seeded interaction suite.
+# Every selection uses ONLY this fresh simulator's empty app container/Keychain.
+# Each UI invocation selects one fresh-simulator test, never the old seeded suite.
 # No OAuth configuration, provisioning, or seed script.
 xcodebuild -project iOS/Nexo.xcodeproj -scheme "$scheme" -sdk iphonesimulator \
   -destination "platform=iOS Simulator,id=$device" -destination-timeout 120 \

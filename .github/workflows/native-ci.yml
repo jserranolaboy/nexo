@@ -106,6 +106,9 @@ jobs:
       - name: Verify fresh-install persistence through the iOS interface
         run: bash scripts/test-ios-ci.sh --ui-smoke
 
+      - name: Verify native PDF preview on another fresh simulator
+        run: bash scripts/test-ios-ci.sh --pdf-preview-smoke
+
       - name: Remove any remaining job-owned simulator
         if: always()
         run: bash scripts/test-ios-ci.sh --cleanup
