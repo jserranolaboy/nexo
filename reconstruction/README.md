@@ -25,7 +25,25 @@ node --experimental-strip-types src/cli.ts show --directory /tmp/nexo-synthetic 
 
 `npm test` también ejecuta ese recorrido. Los datos son ficticios. No usa Drive, cuentas ni documentos reales.
 
-Las compilaciones de la app Apple no corren aquí. Siguen dependiendo de un Mac con Xcode, como describe el README de la raíz.
+El cliente legado sigue dependiendo de un Mac con Xcode, como describe el README de la raíz. Este paquete no lo sustituye.
+
+## Adaptador de Mac
+
+`apple/` no tiene reglas de dominio. El ejecutable `nexo-adapter` llama a `src/cli.ts`. Un proceso ejecuta `journey` y otro `show`. El directorio es temporal y los datos son los sintéticos del núcleo. No abre Application Support, no firma con Developer ID y no publica.
+
+`xcode-select` puede seguir en Command Line Tools. La compilación usa Xcode por `DEVELOPER_DIR`:
+
+```sh
+make test-adapter
+```
+
+Eso equivale a `xcodebuild -scheme nexo-adapter-Package -destination 'platform=macOS'` dentro de `apple/`, con datos derivados en `/tmp/nexo-adapter-dd`.
+
+`NexoAdapterIOS` es la misma orden para iPhone e iPad. Compila contra el SDK del simulador y no lanza Node. Si el runtime no está instalado, el esquema solo se compila:
+
+```sh
+make build-adapter-ios
+```
 
 ## Autoridad
 
