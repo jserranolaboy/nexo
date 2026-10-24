@@ -1,6 +1,6 @@
 # Snapshot scope
 
-This snapshot selects the current Nexo client and shared core from `615057e`, without importing the previous Git history. It excludes user data, screenshots, institutional PDFs, earlier prototypes, the owner's OAuth configuration, sessions, signing profiles, and executable packages.
+The initial publication selected the current Nexo client and shared core from `615057e`, without importing the previous Git history. Subsequent development is recorded in the public repository. It excludes user data, screenshots, institutional PDFs, earlier prototypes, the owner's OAuth configuration, sessions, signing profiles, and executable packages.
 
 The original MIT license and dependency notices are preserved. Third-party libraries and SDKs retain their own terms and attribution. Icons are generated from the included code. Concept images and the VRR raster icon are not reused.
 

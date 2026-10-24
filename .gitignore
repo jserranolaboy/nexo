@@ -10,11 +10,11 @@ DerivedData/
 __pycache__/
 .pytest_cache/
 *.pyc
-# Custom experience toolchain
-node_modules/
+# Frontend toolchain
+node_modules
 dist/
 *.tsbuildinfo
-GoogleOAuth.json
+GoogleOAuth*.json
 client_secret*.json
 
 # Private local configuration, data and generated packages
@@ -35,4 +35,7 @@ Backups/
 *.zip
 *.app/
 output/
-Next/Experience/iOS/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+iOS/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+
+# Generated iOS frontend resources
+iOS/Resources/Web/
