@@ -657,5 +657,11 @@
   "No se encontró la categoría.": "The category wasn't found.",
   "No se encontró el grupo.": "The group wasn't found.",
   "Añadir a «{0}» como persona nueva": "Add “{0}” as a new person",
-  "Escribe un nombre para añadir la primera persona.": "Type a name to add the first person."
+  "Escribe un nombre para añadir la primera persona.": "Type a name to add the first person.",
+  "Abriendo borrador": "Opening draft",
+  "Recuperar borrador": "Recover draft",
+  "Reintentar": "Try again",
+  "El espacio del borrador no está disponible.": "The draft’s space is unavailable.",
+  "El borrador se conserva sin cambios. Puedes volver a intentar abrirlo.": "Your draft is unchanged. You can try opening it again.",
+  "Restaura su espacio desde Papelera o importa una copia que lo incluya antes de reintentar.": "Restore its space from Trash or import a backup containing it before trying again."
 }

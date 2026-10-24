@@ -1082,3 +1082,183 @@ describe('Template save and import ordering', () => {
     expect(r.render().draft).toEqual(expected)
   })
 })
+
+
+describe('Startup draft recovery barrier', () => {
+  function app() {
+    const s = fixture(), hooks = new test.Hooks(), notify = vi.fn(), mutate = vi.fn()
+    const context = { snapshot: s, initialOrganizationID: 'org', drive: emptyDrive, driveBusy: false,
+      demo: false, loading: false, fault: '', busy: false, notify, mutate, toast: null, reload: vi.fn().mockResolvedValue(undefined) }
+    test.context = context
+    const requests: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = []
+    test.bridge.mockImplementation(({ command }) => command === 'recoverDraft'
+      ? new Promise((resolve, reject) => requests.push({ resolve, reject })) : Promise.resolve({}))
+    const render = () => hooks.render(() => App())
+    const activeEditor = () => find(render(), (element) => !!element.props.initial && !!element.props.back)
+    const retry = () => find(render(), (element) => element.type === 'button' && element.props.children === tr('Reintentar')).props.onClick()
+    const noDraftWrites = () => expect(test.bridge.mock.calls.some(([request]) => request.command === 'draftState')).toBe(false)
+    return { render, activeEditor, retry, noDraftWrites, requests, context, hooks, notify, mutate }
+  }
+  const recovered = () => ({ template: { ...newTemplate('org'), name: 'Recovered work' }, organizationID: 'org' })
+
+  it('keeps editor entry unavailable until the saved draft is recovered', async () => {
+    const r = app()
+    const tree = r.render()
+    expect(() => component(tree, 'SearchSheet')).toThrow()
+    expect(() => r.activeEditor()).toThrow()
+    r.noDraftWrites()
+    const draft = recovered()
+    r.requests[0].resolve(draft)
+    await flush()
+    expect(r.activeEditor().props.initial).toEqual(draft.template)
+    expect(r.notify).toHaveBeenCalledWith(tr('Borrador recuperado'))
+  })
+  it('unlocks a workspace only after confirming that no saved draft exists', async () => {
+    const r = app()
+    r.render()
+    r.requests[0].resolve({})
+    await flush()
+    expect(component(r.render(), 'SearchSheet')).toBeDefined()
+    expect(() => r.activeEditor()).toThrow()
+    r.noDraftWrites()
+  })
+  it('preserves a failed read and lets an explicit retry recover the original draft', async () => {
+    const r = app()
+    r.render()
+    r.requests[0].reject(new Error('Synthetic temporary read failure'))
+    await flush()
+    expect(() => component(r.render(), 'SearchSheet')).toThrow()
+    expect(find(r.render(), (element) => element.props.role === 'alert')).toBeDefined()
+    r.noDraftWrites()
+    r.retry()
+    r.render()
+    expect(r.requests).toHaveLength(2)
+    const draft = recovered()
+    r.requests[1].resolve(draft)
+    await flush()
+    expect(r.activeEditor().props.initial).toEqual(draft.template)
+  })
+  it('ignores an old recovery result in demo mode and reads again after returning', async () => {
+    const r = app()
+    r.render()
+    r.context.demo = true
+    expect(component(r.render(), 'SearchSheet')).toBeDefined()
+    r.requests[0].resolve(recovered())
+    await flush()
+    expect(() => r.activeEditor()).toThrow()
+    expect(r.notify).not.toHaveBeenCalled()
+    r.context.demo = false
+    r.render()
+    expect(r.requests).toHaveLength(2)
+    r.requests[1].resolve({})
+    await flush()
+    expect(component(r.render(), 'SearchSheet')).toBeDefined()
+    r.noDraftWrites()
+  })
+  it('does not apply a recovery response after the app unmounts', async () => {
+    const r = app()
+    r.render()
+    r.hooks.dispose()
+    r.requests[0].resolve(recovered())
+    await flush()
+    expect(r.notify).not.toHaveBeenCalled()
+    r.noDraftWrites()
+  })
+  it('keeps an orphan draft blocked and offers backup recovery instead of clearing it', async () => {
+    const r = app()
+    r.context.snapshot = { ...r.context.snapshot, organizations: [] }
+    r.render()
+    r.requests[0].resolve(recovered())
+    await flush()
+    expect(find(r.render(), (element) => element.props.role === 'alert')).toBeDefined()
+    expect(find(r.render(), (element) => element.type === 'button' && element.props.children === tr('Importar copia'))).toBeDefined()
+    expect(() => r.activeEditor()).toThrow()
+    r.noDraftWrites()
+  })
+  it('checks the latest workspace before recovering a draft and can explicitly restore its trashed space', async () => {
+    const r = app()
+    r.render()
+    r.context.snapshot = { ...r.context.snapshot, organizations: [{ ...r.context.snapshot.organizations[0], deletedAt: '2026-10-24T00:00:00Z' }] }
+    r.render()
+    r.requests[0].resolve(recovered())
+    await flush()
+    expect(() => r.activeEditor()).toThrow()
+    r.noDraftWrites()
+    r.mutate.mockImplementation(async () => {
+      r.context.snapshot = { ...r.context.snapshot, organizations: [{ ...r.context.snapshot.organizations[0], deletedAt: undefined }] }
+      return r.context.snapshot
+    })
+    find(r.render(), (element) => element.type === 'button' && element.props.children === tr('Restaurar {0}', 'Synthetic')).props.onClick()
+    await flush()
+    r.render()
+    expect(r.mutate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'setOrganizationDeleted', organizationID: 'org', deleted: false, expectedDeleted: true }))
+    expect(r.requests).toHaveLength(2)
+    const draft = recovered()
+    r.requests[1].resolve(draft)
+    await flush()
+    expect(r.activeEditor().props.initial).toEqual(draft.template)
+  })
+  it.each(['missing-template', 'missing-id', 'wrong-space'])('preserves a malformed %s draft instead of starting another editor', async (kind) => {
+    const r = app(), draft = recovered()
+    const malformed = kind === 'missing-template' ? { organizationID: 'org' }
+      : { ...draft, template: { ...draft.template, ...(kind === 'missing-id' ? { id: '' } : { organizationID: 'different-space' }) } }
+    r.render()
+    r.requests[0].resolve(malformed)
+    await flush()
+    expect(find(r.render(), (element) => element.props.role === 'alert')).toBeDefined()
+    expect(() => component(r.render(), 'SearchSheet')).toThrow()
+    expect(() => r.activeEditor()).toThrow()
+    r.noDraftWrites()
+  })
+  it('keeps a draft retryable when restoring its trashed space fails', async () => {
+    const r = app()
+    r.context.snapshot = { ...r.context.snapshot, organizations: [{ ...r.context.snapshot.organizations[0], deletedAt: '2026-10-24T00:00:00Z' }] }
+    r.render()
+    r.requests[0].resolve(recovered())
+    await flush()
+    r.mutate.mockRejectedValue(new Error('Synthetic restore rejected'))
+    const button = find(r.render(), (element) => element.type === 'button' && element.props.children === tr('Restaurar {0}', 'Synthetic'))
+    button.props.onClick()
+    button.props.onClick()
+    await flush()
+    expect(r.mutate).toHaveBeenCalledOnce()
+    expect(find(r.render(), (element) => element.props.role === 'alert').props.children).toBe('Synthetic restore rejected')
+    r.retry()
+    r.render()
+    expect(r.requests).toHaveLength(2)
+    r.noDraftWrites()
+  })
+  it('retries an orphan draft after an explicitly imported workspace makes its space available', async () => {
+    const r = app(), saved = r.context.snapshot
+    r.context.snapshot = { ...saved, organizations: [] }
+    r.context.reload.mockImplementation(async () => { r.context.snapshot = saved })
+    r.render()
+    r.requests[0].resolve(recovered())
+    await flush()
+    const previous = test.bridge.getMockImplementation()!
+    test.bridge.mockImplementation((request) => request.command === 'restoreWorkspace'
+      ? Promise.resolve({ restored: true }) : previous(request))
+    find(r.render(), (element) => element.type === 'button' && element.props.children === tr('Importar copia')).props.onClick()
+    await flush()
+    r.render()
+    expect(r.context.reload).toHaveBeenCalledOnce()
+    expect(r.requests).toHaveLength(2)
+    const draft = recovered()
+    r.requests[1].resolve(draft)
+    await flush()
+    expect(r.activeEditor().props.initial).toEqual(draft.template)
+    r.noDraftWrites()
+  })
+  it('does not allow keyboard document creation to bypass pending recovery', async () => {
+    const r = app()
+    r.render()
+    for (const key of ['3', 'n']) {
+      window.dispatchEvent(Object.assign(new Event('keydown', { cancelable: true }), { key, metaKey: true }))
+      r.render()
+    }
+    r.requests[0].resolve({})
+    await flush()
+    expect(() => r.activeEditor()).toThrow()
+    r.noDraftWrites()
+  })
+})

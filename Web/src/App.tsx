@@ -82,21 +82,51 @@ export function App() {
   const event = s.events.find((e) => e.id === eventID && e.organizationID === currentOrg && (!componentFilter || e.componentID === componentFilter))
   const member = s.members.find((m) => m.id === memberID && m.organizationID === currentOrg)
 
-  // Recover an unsaved template draft once, after the store opens.
-  const recovered = useRef(false)
+  // Resolve the saved draft before any real editor can mount and overwrite its file.
+  const recoveryComplete = useRef(false)
+  const recoverySnapshot = useRef(s)
+  recoverySnapshot.current = s
+  const [draftRecovery, setDraftRecovery] = useState<'pending' | 'ready' | 'failed'>('pending'),
+    [draftRecoveryError, setDraftRecoveryError] = useState(''),
+    [draftRecoveryAttempt, setDraftRecoveryAttempt] = useState(0),
+    [draftOrganizationID, setDraftOrganizationID] = useState<ID | null>(null),
+    [restoringDraftSpace, setRestoringDraftSpace] = useState(false)
+  const restoringSpace = useRef(false)
+  const recoveryBlocked = nativeAvailable && !w.demo && draftRecovery !== 'ready'
   useEffect(() => {
-    if (!nativeAvailable || w.loading || w.demo || recovered.current) return
-    recovered.current = true
+    if (!nativeAvailable || w.loading || w.demo || w.fault || recoveryComplete.current) return
+    let active = true
+    setDraftRecovery('pending')
+    setDraftRecoveryError('')
+    setDraftOrganizationID(null)
     void native<{ template?: Template; organizationID?: ID; eventID?: ID; baseTemplate?: Template | null }>('recoverDraft')
       .then((draft) => {
-        if (draft.template && s.organizations.some((o) => o.id === draft.organizationID && !o.deletedAt)) {
-          setOrgID(draft.organizationID!)
+        if (!active) return
+        if (draft.template) {
+          if (typeof draft.template.id !== 'string' || !draft.template.id ||
+              !draft.organizationID || draft.template.organizationID !== draft.organizationID)
+            throw new Error(tr('El borrador no es válido.'))
+          const organization = recoverySnapshot.current.organizations.find((o) => o.id === draft.organizationID)
+          if (!organization || organization.deletedAt) {
+            setDraftOrganizationID(draft.organizationID)
+            throw new Error(tr('El espacio del borrador no está disponible.'))
+          }
+          setOrgID(draft.organizationID)
           setEditor({ template: draft.template, eventID: draft.eventID, baseTemplate: draft.baseTemplate })
           w.notify(tr('Borrador recuperado'))
+        } else if (Object.keys(draft).length) {
+          throw new Error(tr('El borrador no es válido.'))
         }
+        recoveryComplete.current = true
+        setDraftRecovery('ready')
       })
-      .catch(() => w.notify(tr('No se pudo abrir el borrador local.'), true))
-  }, [w.loading, w.demo, s.organizations, w.notify])
+      .catch((error) => {
+        if (!active) return
+        setDraftRecoveryError(error instanceof Error ? error.message : String(error))
+        setDraftRecovery('failed')
+      })
+    return () => { active = false }
+  }, [w.loading, w.demo, w.fault, w.notify, draftRecoveryAttempt])
   // A space moved to the trash closes everything that belonged to it.
   useEffect(() => {
     if (!s.organizations.some((o) => o.id === (orgID || w.initialOrganizationID) && o.deletedAt)) return
@@ -166,7 +196,7 @@ export function App() {
   // Keyboard: ⌘K search, ⌘N new, ⌘1–3 areas.
   useEffect(() => {
     const handle = (e: KeyboardEvent) => {
-      if (editor || !(e.metaKey || e.ctrlKey)) return
+      if (w.loading || recoveryBlocked || editor || !(e.metaKey || e.ctrlKey)) return
       if (document.querySelector('.nx-sheet-layer')) return
       const k = e.key.toLowerCase()
       if (k === 'k') {
@@ -188,6 +218,7 @@ export function App() {
       const r = await native<{ restored?: boolean }>('restoreWorkspace')
       if (r.restored) {
         await w.reload()
+        if (!recoveryComplete.current) setDraftRecoveryAttempt((attempt) => attempt + 1)
         setSettings(false)
         resetSelection()
         w.notify(tr('Copia recuperada'))
@@ -202,6 +233,24 @@ export function App() {
       if (r.saved) w.notify(tr('Copia guardada'))
     } catch (e) {
       w.notify(e instanceof Error ? e.message : String(e), true)
+    }
+  }
+  const draftSpace = s.organizations.find((organization) => organization.id === draftOrganizationID)
+  const restoreDraftSpace = async () => {
+    if (!draftSpace?.deletedAt || restoringSpace.current || w.busy || w.driveBusy) return
+    restoringSpace.current = true
+    setRestoringDraftSpace(true)
+    try {
+      await w.mutate({
+        kind: 'setOrganizationDeleted', organizationID: draftSpace.id, deleted: false,
+        expectedDeleted: true, expectedName: draftSpace.name,
+      })
+      setDraftRecoveryAttempt((attempt) => attempt + 1)
+    } catch (error) {
+      setDraftRecoveryError(error instanceof Error ? error.message : String(error))
+    } finally {
+      restoringSpace.current = false
+      setRestoringDraftSpace(false)
     }
   }
   const startDemo = () => void w.startDemo().then(() => enterSpace(''))
@@ -233,6 +282,41 @@ export function App() {
         <Toast />
       </main>
     )
+  if (recoveryBlocked) {
+    if (draftRecovery === 'pending')
+      return (
+        <div className="nx-boot" role="status" aria-label={tr('Abriendo borrador')}>
+          <Mark size={44} />
+        </div>
+      )
+    return (
+      <main className="nx-recovery">
+        <ShieldCheck size={40} />
+        <h1>{tr('Recuperar borrador')}</h1>
+        <p role="alert">{draftRecoveryError || tr('No se pudo abrir el borrador local.')}</p>
+        <p>{tr('El borrador se conserva sin cambios. Puedes volver a intentar abrirlo.')}</p>
+        {draftOrganizationID && <p>{tr('Restaura su espacio desde Papelera o importa una copia que lo incluya antes de reintentar.')}</p>}
+        {draftSpace?.deletedAt && (
+          <button
+            className="nx-button primary"
+            disabled={restoringDraftSpace || w.busy || w.driveBusy || w.drive.spaces.find((space) => space.organizationID === draftSpace.id)?.canEdit === false}
+            onClick={() => void restoreDraftSpace()}
+          >
+            {tr('Restaurar {0}', draftSpace.name)}
+          </button>
+        )}
+        {draftOrganizationID && (
+          <button className="nx-button" disabled={restoringDraftSpace || w.busy || w.driveBusy} onClick={() => void restore()}>
+            {tr('Importar copia')}
+          </button>
+        )}
+        <button className="nx-button" disabled={restoringDraftSpace} onClick={() => setDraftRecoveryAttempt((attempt) => attempt + 1)}>
+          {tr('Reintentar')}
+        </button>
+        <Toast />
+      </main>
+    )
+  }
   if (!organization)
     return (
       <>
