@@ -266,6 +266,23 @@ export function recordAlternative(
   })
 }
 
+/** Keeps the chosen version and drops the others. A paused link does not gain an upload. */
+export function chooseAlternative(
+  workspace: Workspace,
+  input: { spaceId: string; key: string; versionId: string },
+): Workspace {
+  return draft(workspace, (next) => {
+    const link = next.collaboration.find((item) => item.spaceId === canonicalId(input.spaceId))
+    if (!link) throw new DomainError('missing-collaboration')
+    const entry = link.entries.find((item) => item.key === input.key)
+    const chosenId = canonicalId(input.versionId)
+    const chosen = entry?.versions.find((version) => canonicalId(version.id) === chosenId)
+    if (!entry || entry.versions.length < 2 || !chosen) throw new DomainError('missing-alternative')
+    entry.versions = [{ id: chosenId, value: chosen.value }]
+    if (link.paused) link.pendingUploads = link.pendingUploads.slice()
+  })
+}
+
 export function pauseCollaboration(workspace: Workspace): Workspace {
   return draft(workspace, (next) => {
     for (const link of next.collaboration) link.paused = true

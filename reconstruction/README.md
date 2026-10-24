@@ -8,6 +8,8 @@ La asistencia es `presentes / (presentes + ausentes)`. Si no hay registros compu
 
 La sugerencia de voluntariado ordena a quien ya está interesado, según participaciones completadas previas del mismo ámbito. Si el encuentro tiene categoría, el ámbito es esa categoría. La elección es un comando aparte. El cupo se rechaza al elegir, al importar y al combinar. Un encuentro cancelado, sin cupo, una persona inactiva, otro espacio o un encuentro fuera del período también se rechazan, y ese rechazo no cambia el archivo.
 
+La colaboración es opcional y no tiene cuenta ni carpeta. Si el puerto de sincronización falla después de guardar, el archivo local permanece. Un conflicto conserva las alternativas y una escritura vieja no las reemplaza. Restaurar deja la sincronización en pausa y no encola una subida. Elegir una alternativa deja solo esa en el archivo activo; en pausa, la elección no encola una subida.
+
 ## Documentos
 
 El borrador documental se guarda en `document-drafts/document.json`. La cuadrícula de páginas queda en `document-drafts/export.json` y, a partir de ella, el archivo que se entrega es `document-drafts/export.pdf`. Ninguno entra en `nexo-reconstruction-v1.json` ni en `revision-copies`.
@@ -16,11 +18,17 @@ Ese PDF es un archivo PDF 1.4 con una página por cada página del diseño. Cons
 
 ## Voluntariado
 
-Recorrido sintético, y lectura en otro proceso:
-
 ```sh
 node --experimental-strip-types src/cli.ts volunteers --directory /tmp/nexo-voluntarios --lang es
 node --experimental-strip-types src/cli.ts volunteers-show --directory /tmp/nexo-voluntarios --lang en
+```
+
+## Colaboración
+
+```sh
+node --experimental-strip-types src/cli.ts collaborate --directory /tmp/nexo-colaboracion --lang es
+node --experimental-strip-types src/cli.ts collaborate-show --directory /tmp/nexo-colaboracion --lang en
+node --experimental-strip-types src/cli.ts collaborate-choose --directory /tmp/nexo-colaboracion --version cccccccc-cccc-4ccc-8ccc-ccccccccccc1 --lang es
 ```
 
 ## Comandos
