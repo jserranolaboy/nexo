@@ -1519,3 +1519,256 @@ describe("Event classification asynchronous choice preservation", () => {
     expect(category().key).toBe("other-component");
   });
 });
+
+function rosterPicker() {
+  const s = fixture(),
+    eventHooks = new test.Hooks(),
+    hooks = new test.Hooks();
+  s.events[0].volunteerCapacity = 2;
+  s.members.push({
+    id: "available",
+    organizationID: "org",
+    name: "Available",
+    isActive: true,
+  });
+  let mode: "list" | "volunteers" | null = "list",
+    event = s.events[0];
+  const requests: {
+    resolve: (value: unknown) => void;
+    reject: (error: Error) => void;
+  }[] = [];
+  const mutate = vi
+    .fn()
+    .mockImplementation(
+      () =>
+        new Promise((resolve, reject) => requests.push({ resolve, reject })),
+    );
+  const close = vi.fn(() => {
+    mode = null;
+  });
+  test.context = { mutate, notify: vi.fn(), busy: false };
+  const original = component(
+    eventHooks.render(() =>
+      EventView({
+        s,
+        event,
+        edit: vi.fn(),
+        document: vi.fn(),
+        openMember: vi.fn(),
+      }),
+    ),
+    "RosterPicker",
+  );
+  const render = () =>
+    hooks.render(() =>
+      invoke({
+        ...original,
+        props: { ...original.props, s, mode, event, close },
+      }),
+    );
+  const input = () => find(render(), (element) => element.type === "input");
+  const query = (value: string) =>
+    input().props.onChange({ target: { value } });
+  const add = () =>
+    find(
+      render(),
+      (element) => element.props.className === "nx-picker-row new",
+    );
+  const submit = () =>
+    find(
+      render(),
+      (element) =>
+        element.type === "button" &&
+        element.props.className === "nx-button primary",
+    );
+  const option = () =>
+    find(render(), (element) => element.props.role === "option");
+  return {
+    s,
+    render,
+    input,
+    query,
+    add,
+    submit,
+    option,
+    mutate,
+    close,
+    resolve: (index = 0) => requests[index].resolve(s),
+    reject: (index = 0) =>
+      requests[index].reject(new Error("Synthetic picker failure")),
+    mode: (next: typeof mode) => {
+      mode = next;
+      render();
+    },
+    event: () => {
+      event = { ...event, id: "next-event", title: "Next event" };
+      render();
+    },
+    dispose: () => hooks.dispose(),
+  };
+}
+
+describe("Roster picker request and session lifecycle", () => {
+  it("creates only one person for repeated Enter and add callbacks", async () => {
+    const r = rosterPicker();
+    r.query("New synthetic person");
+    const input = r.input(),
+      add = r.add();
+    input.props.onKeyDown({ key: "Enter", preventDefault: vi.fn() });
+    add.props.onClick();
+    expect(r.mutate).toHaveBeenCalledOnce();
+    expect(r.input().props.readOnly).toBe(true);
+    r.resolve();
+    await flush();
+    expect(r.input().props.value).toBe("");
+    expect(r.submit().props.disabled).toBe(false);
+  });
+  it("submits the selected roster once before rerender", async () => {
+    const r = rosterPicker();
+    r.option().props.onClick();
+    const submit = r.submit();
+    submit.props.onClick();
+    submit.props.onClick();
+    expect(r.mutate).toHaveBeenCalledOnce();
+    r.resolve();
+    await flush();
+    expect(r.close).toHaveBeenCalledOnce();
+  });
+  it.each(["add-first", "roster-first"])(
+    "serializes person creation and roster submission: %s",
+    (order) => {
+      const r = rosterPicker();
+      r.option().props.onClick();
+      r.query("New synthetic person");
+      const add = r.add(),
+        submit = r.submit();
+      if (order === "add-first") {
+        add.props.onClick();
+        submit.props.onClick();
+      } else {
+        submit.props.onClick();
+        add.props.onClick();
+      }
+      expect(r.mutate).toHaveBeenCalledOnce();
+      expect(r.submit().props.disabled).toBe(true);
+    },
+  );
+  it("retains a failed new-person name and permits a deliberate retry", async () => {
+    const r = rosterPicker();
+    r.query("Retry person");
+    r.add().props.onClick();
+    r.reject();
+    await flush();
+    expect(r.input().props).toMatchObject({
+      value: "Retry person",
+      readOnly: false,
+    });
+    expect(
+      find(r.render(), (element) => element.props.role === "alert").props
+        .children,
+    ).toBe("Synthetic picker failure");
+    r.add().props.onClick();
+    expect(r.mutate).toHaveBeenCalledTimes(2);
+    expect(r.mutate.mock.calls[1][0]).toMatchObject({
+      kind: "addMember",
+      name: "Retry person",
+    });
+    r.resolve(1);
+    await flush();
+    expect(r.submit().props.disabled).toBe(false);
+  });
+  it("retains a rejected roster selection for retry without closing the picker", async () => {
+    const r = rosterPicker();
+    r.option().props.onClick();
+    r.submit().props.onClick();
+    r.reject();
+    await flush();
+    expect(r.close).not.toHaveBeenCalled();
+    expect(r.option().props["aria-selected"]).toBe(true);
+    expect(r.submit().props.disabled).toBe(false);
+    r.submit().props.onClick();
+    expect(r.mutate).toHaveBeenCalledTimes(2);
+    expect(r.mutate.mock.calls[1][0]).toMatchObject({
+      kind: "roster",
+      memberIDs: ["available"],
+    });
+  });
+  it("does not imply a pending write was canceled or accept selection/search edits while it is pending", () => {
+    const r = rosterPicker();
+    r.option().props.onClick();
+    const option = r.option(),
+      input = r.input();
+    r.submit().props.onClick();
+    input.props.onChange({ target: { value: "Later query" } });
+    option.props.onClick();
+    component(r.render(), "Sheet").props.onClose();
+    find(
+      r.render(),
+      (element) =>
+        element.type === "button" && element.props.children === tr("Cancelar"),
+    ).props.onClick();
+    expect(r.close).not.toHaveBeenCalled();
+    expect(r.input().props).toMatchObject({ value: "", readOnly: true });
+    expect(r.option().props).toMatchObject({
+      disabled: true,
+      "aria-selected": true,
+    });
+  });
+  it("ignores retained submit and add callbacks after an idle dismissal", () => {
+    const r = rosterPicker();
+    r.option().props.onClick();
+    r.query("Canceled person");
+    const submit = r.submit(),
+      add = r.add();
+    component(r.render(), "Sheet").props.onClose();
+    submit.props.onClick();
+    add.props.onClick();
+    expect(r.close).toHaveBeenCalledOnce();
+    expect(r.mutate).not.toHaveBeenCalled();
+  });
+  it.each(["mode", "event"] as const)(
+    "does not apply an old person creation to a newer %s session",
+    async (change) => {
+      const r = rosterPicker();
+      r.query("Old person");
+      r.add().props.onClick();
+      if (change === "mode") r.mode("volunteers");
+      else r.event();
+      r.query("Current query");
+      r.resolve();
+      await flush();
+      expect(r.input().props.value).toBe("Current query");
+      expect(r.submit().props.disabled).toBe(true);
+      expect(r.close).not.toHaveBeenCalled();
+    },
+  );
+  it("ignores a superseded request error without unlocking a newer request", async () => {
+    const r = rosterPicker();
+    r.query("Old person");
+    r.add().props.onClick();
+    r.mode("volunteers");
+    r.query("Current person");
+    r.add().props.onClick();
+    r.reject();
+    await flush();
+    expect(() =>
+      find(r.render(), (element) => element.props.role === "alert"),
+    ).toThrow();
+    expect(r.input().props).toMatchObject({
+      value: "Current person",
+      readOnly: true,
+    });
+    r.resolve(1);
+    await flush();
+    expect(r.input().props.readOnly).toBe(false);
+  });
+  it("does not close a newer screen after the submitting picker unmounts", async () => {
+    const r = rosterPicker();
+    r.option().props.onClick();
+    r.submit().props.onClick();
+    r.dispose();
+    r.resolve();
+    await flush();
+    expect(r.close).not.toHaveBeenCalled();
+  });
+});

@@ -1,5 +1,5 @@
 import { t as tr, locale } from './i18n'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, animate, motion, useMotionValue, useTransform } from 'motion/react'
 import {
   ArrowLeft,
@@ -605,11 +605,30 @@ function RosterPicker({
     [query, setQuery] = useState(''),
     [error, setError] = useState(''),
     [saving, setSaving] = useState(false)
-  useEffect(() => {
+  const operation = useRef(false), session = useRef(0)
+  useLayoutEffect(() => {
+    session.current++
+    operation.current = false
     setSelected([])
     setQuery('')
     setError('')
-  }, [mode])
+    setSaving(false)
+    return () => { session.current++ }
+  }, [mode, event.id])
+  const version = session.current
+  const isCurrent = () => version === session.current && !!mode
+  const begin = () => {
+    if (!isCurrent() || operation.current) return false
+    operation.current = true
+    setSaving(true)
+    setError('')
+    return true
+  }
+  const dismiss = () => {
+    if (!isCurrent() || operation.current) return
+    session.current++
+    close()
+  }
   // Only computed while the picker is open; closed, it costs nothing per render.
   const { available, groups } = useMemo(() => {
     if (!mode) return { available: [], groups: [] }
@@ -631,40 +650,53 @@ function RosterPicker({
   const exact = s.members.some((m) => m.organizationID === event.organizationID && searchKey(m.name) === key)
   const addNew = async () => {
     const name = query.trim()
-    if (!name) return
+    if (!name || exact || !begin()) return
     const memberID = id()
     try {
       await mutate({ kind: 'addMember', id: memberID, organizationID: event.organizationID, name, groupIDs: [] }, tr('{0} añadida', name))
-      setSelected((list) => [...list, memberID])
-      setQuery('')
+      if (isCurrent()) {
+        setSelected((list) => [...new Set([...list, memberID])])
+        setQuery('')
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      if (isCurrent()) setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      if (isCurrent()) {
+        operation.current = false
+        setSaving(false)
+      }
     }
   }
   const toggle = (ids: ID[]) => {
-    const all = ids.every((i) => selected.includes(i))
-    setSelected(all ? selected.filter((i) => !ids.includes(i)) : [...new Set([...selected, ...ids])])
+    if (!isCurrent() || operation.current) return
+    setSelected((list) => ids.every((i) => list.includes(i))
+      ? list.filter((i) => !ids.includes(i)) : [...new Set([...list, ...ids])])
     selectionFeedback()
   }
   const submit = async () => {
-    setSaving(true)
-    setError('')
+    if (!selected.length || !begin()) return
     try {
       await mutate(
         { kind: mode === 'volunteers' ? 'registerVolunteers' : 'roster', eventID: event.id, memberIDs: selected },
         tr('{0} añadidas', selected.length),
       )
-      close()
+      if (isCurrent()) {
+        session.current++
+        close()
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      if (isCurrent()) setError(e instanceof Error ? e.message : String(e))
     } finally {
-      setSaving(false)
+      if (isCurrent()) {
+        operation.current = false
+        setSaving(false)
+      }
     }
   }
   return (
     <Sheet
       open={!!mode}
-      onClose={close}
+      onClose={dismiss}
       size="large"
       title={mode === 'volunteers' ? tr('Interesados') : tr('Lista de {0}', event.title)}
     >
@@ -675,6 +707,7 @@ function RosterPicker({
               <button
                 key={g.id}
                 className="nx-chip"
+                disabled={saving}
                 aria-pressed={g.people.every((i) => selected.includes(i))}
                 onClick={() => toggle(g.people)}
               >
@@ -690,9 +723,12 @@ function RosterPicker({
           <input
             type="search"
             value={query}
+            readOnly={saving}
             placeholder={tr('Buscar personas')}
             aria-label={tr('Buscar personas')}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              if (isCurrent() && !operation.current) setQuery(e.target.value)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && query.trim() && !visible.length && !exact) {
                 e.preventDefault()
@@ -708,6 +744,7 @@ function RosterPicker({
               role="option"
               aria-selected={selected.includes(m.id)}
               className="nx-picker-row"
+              disabled={saving}
               onClick={() => toggle([m.id])}
             >
               <Avatar name={m.name} index={s.members.indexOf(m)} size={32} />
@@ -716,7 +753,7 @@ function RosterPicker({
             </button>
           ))}
           {query.trim() && !exact && (
-            <button className="nx-picker-row new" onClick={() => void addNew()}>
+            <button className="nx-picker-row new" disabled={saving} onClick={() => void addNew()}>
               <span className="nx-new-avatar">
                 <Plus size={16} />
               </span>
@@ -733,7 +770,7 @@ function RosterPicker({
         </div>
         {error && <p className="nx-form-error" role="alert">{error}</p>}
         <div className="nx-form-footer sticky">
-          <button className="nx-button" onClick={close}>
+          <button className="nx-button" disabled={saving} onClick={dismiss}>
             {tr('Cancelar')}
           </button>
           <button className="nx-button primary" disabled={!selected.length || saving} onClick={() => void submit()}>
