@@ -85,6 +85,147 @@ final class IOSPersistenceTests: XCTestCase {
         XCTAssertEqual(decoded["href"], page.absoluteString, text)
     }
 
+    /// Exercise real React/portal/lazy mounting, not native touch or PDF rendering.
+    /// Normal demo controls create only the application's in-memory example data.
+    func testDemoDocumentActionMountsStudioThroughBundledWebView() throws {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.setURLSchemeHandler(BundleScheme(), forURLScheme: "valentina")
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: "window.nexoLocale='es';window.nexoPlatform='ios';window.nexoDevice='iPhone';",
+            injectionTime: .atDocumentStart, forMainFrameOnly: true
+        ))
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 393, height: 793), configuration: configuration)
+        // Give layout and animations a real, isolated host without installing a bridge.
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first { $0.activationState == .foregroundActive })
+        let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        web.scrollView.contentInsetAdjustmentBehavior = .never
+        web.translatesAutoresizingMaskIntoConstraints = false
+        controller.view.addSubview(web)
+        NSLayoutConstraint.activate([
+            web.leadingAnchor.constraint(equalTo: controller.view.leadingAnchor),
+            web.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor),
+            web.topAnchor.constraint(equalTo: controller.view.safeAreaLayoutGuide.topAnchor),
+            web.bottomAnchor.constraint(equalTo: controller.view.bottomAnchor)
+        ])
+        let navigation = BundledPageNavigation()
+        web.navigationDelegate = navigation
+        defer {
+            web.stopLoading(); web.navigationDelegate = nil
+            web.removeFromSuperview()
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+            previousKeyWindow?.makeKey()
+        }
+        window.makeKeyAndVisible()
+        controller.view.layoutIfNeeded()
+        let page = try XCTUnwrap(URL(string: "valentina://experience/index.html"))
+        web.load(URLRequest(url: page))
+        guard XCTWaiter.wait(for: [navigation.finished], timeout: 20) == .completed else {
+            XCTFail("Bundled demo page did not finish loading")
+            return
+        }
+        if let error = navigation.error { throw error }
+        guard web.url == page else { XCTFail("Unexpected bundled demo URL"); return }
+
+        let prefix = "NexoDemoTransition-\(UUID().uuidString):"
+        let literal = try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: prefix, options: .fragmentsAllowed), encoding: .utf8))
+        let started = XCTestExpectation(description: "Demo transition diagnostic started")
+        var evaluationError: Error?
+        var evaluationStarted = false
+        // This separate WebView deliberately does not pre-import Studio.
+        web.evaluateJavaScript("""
+            (() => {
+              const prefix = \(literal);
+              const deadline = performance.now() + 20000;
+              const clicks = [];
+              let stage = 'welcome', blankClicks = 0, blankTrusted = null, blankBubbles = null, centerHit = false, bounds = null, hitTarget = null;
+              const bridgeAbsent = () => !window.webkit?.messageHandlers?.valentina;
+              const finish = result => { document.title = prefix + JSON.stringify({ ...result, stage, clicks, blankClicks, blankTrusted, blankBubbles, centerHit, bounds, hitTarget, href: location.href, bridgeAbsent: bridgeAbsent() }); };
+              const until = async (name, query) => {
+                stage = name;
+                while (performance.now() < deadline) {
+                  const recovery = document.querySelector('.interface-recovery');
+                  if (recovery) throw new Error(recovery.textContent);
+                  const result = query();
+                  if (result) return result;
+                  await new Promise(resolve => setTimeout(resolve, 50));
+                }
+                throw new Error('Timed out at ' + name);
+              };
+              const click = (name, control) => {
+                if (control.disabled) throw new Error('Disabled control: ' + name);
+                clicks.push(name);
+                control.click();
+              };
+              (async () => {
+                if (!bridgeAbsent()) throw new Error('Unexpected native bridge');
+                const example = await until('example control', () => document.querySelector('.opening-primary'));
+                if (example.textContent.trim() !== 'Explorar ejemplo') throw new Error('Unexpected opening action');
+                click('example', example);
+                await until('phone demo', () => document.querySelector('.nx-app.is-demo.layout-phone'));
+                const event = await until('demo event', () => Array.from(document.querySelectorAll('button.nx-agenda-row')).find(node => node.textContent.includes('Jornada de bienestar')));
+                click('event', event);
+                const documentAction = await until('document action', () => document.querySelector('.nx-event button[aria-label="Documento"]'));
+                click('document', documentAction);
+                const blank = await until('blank page geometry', () => {
+                  const node = Array.from(document.querySelectorAll('[role="dialog"] button.nx-group-row')).find(button => button.textContent.trim() === 'Hoja en blanco');
+                  if (!node || node.disabled) return null;
+                  const rect = node.getBoundingClientRect();
+                  const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+                  const sheet = node.closest('.nx-sheet');
+                  const transform = sheet && getComputedStyle(sheet).transform;
+                  if (transform && transform !== 'none' && Math.abs(new DOMMatrixReadOnly(transform).m42) > 0.1) return null;
+                  if (rect.width <= 0 || rect.height <= 0 || rect.top < 0 || rect.bottom > innerHeight || x < 0 || x >= innerWidth) return null;
+                  bounds = [rect.x, rect.y, rect.width, rect.height];
+                  return node;
+                });
+                stage = 'blank page hit target';
+                const rect = blank.getBoundingClientRect();
+                const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+                hitTarget = hit && { tag: hit.tagName, className: hit.className, text: hit.textContent?.slice(0, 160) };
+                centerHit = hit === blank || blank.contains(hit);
+                if (!centerHit) throw new Error('Blank-page center is intercepted');
+                const observed = event => {
+                  if (event.target === blank) { blankClicks++; blankTrusted = event.isTrusted; blankBubbles = event.bubbles; }
+                };
+                document.addEventListener('click', observed, true);
+                try {
+                  click('blank', blank);
+                  await until('mobile editor', () => document.querySelector('.mobile-studio') && !document.querySelector('[role="dialog"]'));
+                  const save = document.querySelector('.mobile-studio .mobile-save');
+                  if (!save || save.disabled || save.textContent.trim() !== 'Guardar') throw new Error('New template Save is unavailable');
+                  finish({ mounted: true, saveEnabled: true });
+                } finally { document.removeEventListener('click', observed, true); }
+              })().catch(error => finish({ error: String(error), recovery: !!document.querySelector('.interface-recovery'), picker: !!document.querySelector('[role="dialog"]'), editor: !!document.querySelector('.mobile-studio') }));
+            })();
+            true;
+            """) { value, error in
+                evaluationError = error
+                evaluationStarted = value as? Bool == true
+                started.fulfill()
+            }
+        guard XCTWaiter.wait(for: [started], timeout: 20) == .completed else { XCTFail("Demo diagnostic did not start"); return }
+        if let error = evaluationError { throw error }
+        guard evaluationStarted else { XCTFail("Unexpected demo startup result"); return }
+        let completed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "title BEGINSWITH %@", prefix), object: web)
+        guard XCTWaiter.wait(for: [completed], timeout: 25) == .completed else { XCTFail("Demo transition did not complete"); return }
+        let text = String(try XCTUnwrap(web.title).dropFirst(prefix.count))
+        let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        XCTAssertNil(decoded["error"], text)
+        XCTAssertEqual(decoded["mounted"] as? Bool, true, text)
+        XCTAssertEqual(decoded["saveEnabled"] as? Bool, true, text)
+        XCTAssertEqual(decoded["centerHit"] as? Bool, true, text)
+        XCTAssertEqual(decoded["blankClicks"] as? Int, 1, text)
+        XCTAssertEqual(decoded["blankTrusted"] as? Bool, false, text)
+        XCTAssertEqual(decoded["blankBubbles"] as? Bool, true, text)
+        XCTAssertEqual(decoded["bridgeAbsent"] as? Bool, true, text)
+        XCTAssertEqual(decoded["href"] as? String, page.absoluteString, text)
+        XCTAssertEqual(decoded["clicks"] as? [String], ["example", "event", "document", "blank"], text)
+    }
+
     func testDraftSurvivesRestartWithoutSavingOrUploadingTemplate() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
