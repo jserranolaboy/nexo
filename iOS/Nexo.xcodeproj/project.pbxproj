@@ -44,14 +44,14 @@
 			containerPortal = 12D98C7F111EAF28A21AB02F /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = C4E0954F8678B2D21B30FB62;
-			remoteInfo = Nexo;
+			remoteInfo = NexoIOS;
 		};
 		476AF61B4F21107F7BD5D602 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 12D98C7F111EAF28A21AB02F /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = C4E0954F8678B2D21B30FB62;
-			remoteInfo = Nexo;
+			remoteInfo = NexoIOS;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -253,9 +253,9 @@
 			productReference = A635B3F334DBE25823197EFC /* NexoTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		C4E0954F8678B2D21B30FB62 /* Nexo */ = {
+		C4E0954F8678B2D21B30FB62 /* NexoIOS */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 7B99FE6636027525B3F52CBD /* Build configuration list for PBXNativeTarget "Nexo" */;
+			buildConfigurationList = 7B99FE6636027525B3F52CBD /* Build configuration list for PBXNativeTarget "NexoIOS" */;
 			buildPhases = (
 				331B68EF676B32B7E2DCE04C /* Sources */,
 				BF937BC9C5F58409BCBB92C2 /* Resources */,
@@ -265,7 +265,7 @@
 			);
 			dependencies = (
 			);
-			name = Nexo;
+			name = NexoIOS;
 			packageProductDependencies = (
 				FC9872BF2B26735E50CD987B /* NexoCore */,
 				DA9FCE68AB07FB1DB34D34D1 /* NexoKit */,
@@ -315,7 +315,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				C4E0954F8678B2D21B30FB62 /* Nexo */,
+				C4E0954F8678B2D21B30FB62 /* NexoIOS */,
 				AEE1D3087618D4D124ECB242 /* NexoTests */,
 				8BF1D233B50EE5A77B4CDC86 /* NexoUITests */,
 			);
@@ -383,12 +383,12 @@
 /* Begin PBXTargetDependency section */
 		26C89D436F46B0EFAEDF8C1D /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = C4E0954F8678B2D21B30FB62 /* Nexo */;
+			target = C4E0954F8678B2D21B30FB62 /* NexoIOS */;
 			targetProxy = 2AC276A7647F23C86E49EE00 /* PBXContainerItemProxy */;
 		};
 		6030572E9443A1617014FA75 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = C4E0954F8678B2D21B30FB62 /* Nexo */;
+			target = C4E0954F8678B2D21B30FB62 /* NexoIOS */;
 			targetProxy = 476AF61B4F21107F7BD5D602 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -407,7 +407,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = org.nexo.ios.uitests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = Nexo;
+				TEST_TARGET_NAME = NexoIOS;
 			};
 			name = Release;
 		};
@@ -585,6 +585,8 @@
 					"@executable_path/Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.nexo.ios;
+				PRODUCT_MODULE_NAME = Nexo;
+				PRODUCT_NAME = Nexo;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -603,7 +605,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = org.nexo.ios.uitests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = Nexo;
+				TEST_TARGET_NAME = NexoIOS;
 			};
 			name = Debug;
 		};
@@ -618,6 +620,8 @@
 					"@executable_path/Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.nexo.ios;
+				PRODUCT_MODULE_NAME = Nexo;
+				PRODUCT_NAME = Nexo;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -644,7 +648,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		7B99FE6636027525B3F52CBD /* Build configuration list for PBXNativeTarget "Nexo" */ = {
+		7B99FE6636027525B3F52CBD /* Build configuration list for PBXNativeTarget "NexoIOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				ADBCD4C29D1240A49189044D /* Debug */,

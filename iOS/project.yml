@@ -20,9 +20,11 @@ settings:
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES
 targets:
-  Nexo:
+  # Keep the app target distinct from the Native package's Nexo executable target.
+  NexoIOS:
     type: application
     platform: iOS
+    productName: Nexo
     sources:
       - path: Sources
       - path: Resources/Web
@@ -38,10 +40,10 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.nexo.ios
+        PRODUCT_NAME: Nexo
+        PRODUCT_MODULE_NAME: Nexo
         INFOPLIST_FILE: Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-    scheme:
-      testTargets: [NexoTests]
   NexoTests:
     type: bundle.unit-test
     platform: iOS
@@ -52,7 +54,7 @@ targets:
       - path: ../Core/Tests/NexoCoreTests
         excludes: [PDFThumbnailTests.swift]
     dependencies:
-      - target: Nexo
+      - target: NexoIOS
       - package: NexoCore
       - package: NexoKit
     settings:
@@ -65,16 +67,24 @@ targets:
     sources:
       - path: UITests
     dependencies:
-      - target: Nexo
+      - target: NexoIOS
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: org.nexo.ios.uitests
 schemes:
+  Nexo:
+    build:
+      targets:
+        NexoIOS: all
+    test:
+      targets: [NexoTests]
+      settingsTarget: NexoIOS
   NexoInteraction:
     build:
       targets:
-        Nexo: all
+        NexoIOS: all
         NexoUITests: [test]
     test:
       targets: [NexoUITests]
+      settingsTarget: NexoIOS

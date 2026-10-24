@@ -17,7 +17,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "C4E0954F8678B2D21B30FB62"
                BuildableName = "Nexo.app"
-               BlueprintName = "Nexo"
+               BlueprintName = "NexoIOS"
                ReferencedContainer = "container:Nexo.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -48,7 +48,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "C4E0954F8678B2D21B30FB62"
             BuildableName = "Nexo.app"
-            BlueprintName = "Nexo"
+            BlueprintName = "NexoIOS"
             ReferencedContainer = "container:Nexo.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
@@ -84,7 +84,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "C4E0954F8678B2D21B30FB62"
             BuildableName = "Nexo.app"
-            BlueprintName = "Nexo"
+            BlueprintName = "NexoIOS"
             ReferencedContainer = "container:Nexo.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -101,7 +101,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "C4E0954F8678B2D21B30FB62"
             BuildableName = "Nexo.app"
-            BlueprintName = "Nexo"
+            BlueprintName = "NexoIOS"
             ReferencedContainer = "container:Nexo.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
