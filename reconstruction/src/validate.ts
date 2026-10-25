@@ -37,6 +37,7 @@ export function validate(workspace: Workspace): void {
   for (const group of workspace.groups) {
     canonicalId(group.id)
     if (!spaces.has(group.spaceId)) throw new DomainError('broken-relationship')
+    if (!group.name.trim() || group.name.length > 200) throw new DomainError('invalid-name')
   }
   const groups = new Set(workspace.groups.map((item) => item.id))
   for (const membership of workspace.memberships) {
@@ -51,6 +52,7 @@ export function validate(workspace: Workspace): void {
   for (const component of workspace.components) {
     canonicalId(component.id)
     if (!spaces.has(component.spaceId)) throw new DomainError('broken-relationship')
+    if (!component.name.trim() || component.name.length > 200) throw new DomainError('invalid-name')
   }
   for (const encounter of workspace.encounters) {
     canonicalId(encounter.id)
