@@ -100,8 +100,7 @@ public struct InterfaceView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     private let canvas = Color(red: 0.965, green: 0.965, blue: 0.972)
-    private let accent = Color(red: 0, green: 0.478, blue: 1)
-    private let cardInk = Color(red: 0.11, green: 0.11, blue: 0.12)
+    private let cardInk = Color(red: 0.149, green: 0.149, blue: 0.161)
 
     public var body: some View {
         let en = model.english
@@ -293,13 +292,14 @@ public struct InterfaceView: View {
                 .foregroundStyle(.secondary)
             HStack(spacing: 8) {
                 ForEach(days) { day in
-                    VStack(spacing: 4) {
-                        Text(day.weekday).font(.system(size: 12)).foregroundStyle(day.selected ? .white : .secondary)
-                        Text(day.number).font(.system(size: 18, weight: .semibold)).foregroundStyle(day.selected ? .white : .primary)
+                    VStack(spacing: 8) {
+                        Text(day.weekday).font(.system(size: 10)).foregroundStyle(day.selected ? .white : .secondary)
+                        Text(day.number).font(.system(size: 21, weight: .regular)).foregroundStyle(day.selected ? .white : .primary)
+                        Circle().fill(day.selected ? Color.white : Color.clear).frame(width: 4, height: 4)
                     }
                     .frame(maxWidth: .infinity)
-                    .frame(height: 64)
-                    .background(day.selected ? accent : Color.clear, in: RoundedRectangle(cornerRadius: 16))
+                    .padding(.vertical, 12)
+                    .background(day.selected ? cardInk : Color.clear, in: RoundedRectangle(cornerRadius: 30))
                 }
             }
             Text(en ? "On the calendar" : "En el calendario")
@@ -328,64 +328,91 @@ public struct InterfaceView: View {
 
     private func encounterCard(_ en: Bool, wide: Bool) -> some View {
         let title = model.screen.encounterTitle
-        return VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 18) {
-                HStack {
-                    if !model.screen.componentName.isEmpty, !title.isEmpty {
-                        Text(model.screen.componentName)
-                            .font(.system(size: 12, weight: .medium))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(Color.white.opacity(0.12), in: Capsule())
+        let listed = model.screen.people.filter(\.listed)
+        return VStack(alignment: .leading, spacing: 14) {
+            ZStack(alignment: .topLeading) {
+                EncounterWaves()
+                    .stroke(Color(white: 0.67), lineWidth: 1)
+                    .opacity(0.45)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .offset(x: 36)
+                    .allowsHitTesting(false)
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        if !model.screen.componentName.isEmpty, !title.isEmpty {
+                            Text(model.screen.componentName)
+                                .font(.system(size: 10, weight: .medium))
+                                .tracking(1)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.white.opacity(0.12), in: Capsule())
+                        }
+                        Spacer()
+                        if !title.isEmpty {
+                            Text(badge(model.screen.startsAt, en: en))
+                                .font(.system(size: 10, weight: .semibold))
+                                .tracking(1)
+                        }
                     }
-                    Spacer()
+                    Spacer(minLength: wide ? 80 : 28)
                     if !title.isEmpty {
-                        Text(badge(model.screen.startsAt, en: en))
-                            .font(.system(size: 12, weight: .semibold))
+                        Text(clock(model.screen.startsAt, en: en))
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color(white: 0.78))
+                            .padding(.bottom, 8)
                     }
+                    Text(title.isEmpty ? (en ? "No encounter" : "Sin encuentro") : title)
+                        .font(.system(size: wide ? 44 : 32, weight: .semibold))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.7)
+                        .accessibilityIdentifier("nexo.encounter-title-label")
+                    HStack(alignment: .bottom) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: -8) {
+                                ForEach(Array(listed.prefix(4).enumerated()), id: \.element.id) { index, person in
+                                    Text(String(person.name.prefix(1)).uppercased())
+                                        .font(.system(size: 12, weight: .medium))
+                                        .frame(width: 35, height: 35)
+                                        .background(avatarFill(index), in: Circle())
+                                        .overlay(Circle().stroke(cardInk, lineWidth: 2))
+                                }
+                            }
+                            Text(title.isEmpty ? (en ? "List to prepare" : "Lista por preparar") : registeredLine(en))
+                                .font(.system(size: 10))
+                                .foregroundStyle(Color(white: 0.79))
+                        }
+                        Spacer()
+                        Button { section = .attendance } label: {
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 16, weight: .semibold))
+                                .frame(width: 44, height: 44)
+                                .background(Color.white.opacity(0.08), in: Circle())
+                                .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("nexo.open-attendance")
+                    }
+                    .padding(.top, 24)
                 }
-                Text(clock(model.screen.startsAt, en: en))
-                    .font(.system(size: 14))
-                    .foregroundStyle(.white.opacity(0.7))
-                Text(title.isEmpty ? (en ? "No encounter" : "Sin encuentro") : title)
-                    .font(.system(size: wide ? 40 : 32, weight: .bold))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.7)
-                    .accessibilityIdentifier("nexo.encounter-title-label")
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(String(title.prefix(1)).uppercased())
-                            .font(.system(size: 14, weight: .bold))
-                            .frame(width: 28, height: 28)
-                            .background(Color.white.opacity(0.16), in: Circle())
-                        Text(registeredLine(en))
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.75))
-                    }
-                    Spacer()
-                    Button { section = .attendance } label: {
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 16, weight: .semibold))
-                            .frame(width: 44, height: 44)
-                            .background(Color.white.opacity(0.08), in: Circle())
-                            .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("nexo.open-attendance")
-                }
+                .padding(wide ? 30 : 20)
             }
             .foregroundStyle(.white)
-            .padding(22)
-            .frame(maxWidth: .infinity, minHeight: wide ? 280 : 220, alignment: .leading)
-            .background(cardInk, in: RoundedRectangle(cornerRadius: 28))
-            HStack {
-                Label(peopleLine(en), systemImage: "sparkle")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, minHeight: wide ? 360 : 240, alignment: .leading)
+            .background(
+                LinearGradient(
+                    colors: [Color(red: 0.204, green: 0.204, blue: 0.220), Color(red: 0.125, green: 0.125, blue: 0.137)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            HStack(spacing: 10) {
+                Text("✳").font(.system(size: 22)).foregroundStyle(Color(white: 0.68))
+                Text(peopleLine(en)).font(.system(size: 12, weight: .medium))
                 Spacer()
                 Button(en ? "Add" : "Añadir") { section = .people }
                     .buttonStyle(.plain)
-                    .font(.system(size: 14))
+                    .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("nexo.show-people")
             }
@@ -393,30 +420,68 @@ public struct InterfaceView: View {
     }
 
     private func people(_ en: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(en ? "People" : "Personas").font(.system(size: 40, weight: .bold))
+        let shown = model.screen.people.filter { matches($0.name) }
+        return VStack(alignment: .leading, spacing: 28) {
+            HStack(alignment: .bottom) {
+                Text(en ? "People" : "Personas")
+                    .font(.system(size: 40, weight: .semibold))
+                    .tracking(-1.2)
+                Spacer()
+                Button(en ? "Add" : "Añadir", action: addPerson)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(cardInk, in: RoundedRectangle(cornerRadius: 9))
+                    .accessibilityIdentifier("nexo.add-person")
+            }
             TextField(en ? "Person name" : "Nombre de la persona", text: $personName)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("nexo.person-name")
                 .onSubmit { addPerson() }
-            Button(en ? "Add" : "Añadir", action: addPerson)
-                .accessibilityIdentifier("nexo.add-person")
-            ForEach(model.screen.people.filter { matches($0.name) }) { person in
-                Text(person.name).font(.system(size: 17))
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 17)], spacing: 17) {
+                ForEach(Array(shown.enumerated()), id: \.element.id) { index, person in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(String(person.name.prefix(1)).uppercased())
+                            .font(.system(size: 22, weight: .medium))
+                            .frame(width: 64, height: 64)
+                            .background(avatarFill(index), in: Circle())
+                        Text(person.name).font(.system(size: 16, weight: .medium))
+                        Text(person.listed ? (en ? "Member" : "Integrante") : (en ? "Off the list" : "Fuera de la lista"))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(22)
+                    .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
+                    .background(Color(white: 0.98), in: RoundedRectangle(cornerRadius: 15))
+                    .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color(white: 0.87), lineWidth: 1))
+                }
             }
         }
-        .buttonStyle(.bordered)
     }
 
     private func attendance(_ en: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(en ? "Attendance" : "Asistencia").font(.system(size: 40, weight: .bold))
+        VStack(alignment: .leading, spacing: 22) {
+            Text(en ? "Attendance" : "Asistencia")
+                .font(.system(size: 40, weight: .semibold))
+                .tracking(-1.2)
+            HStack {
+                Text(en ? "Individual attendance" : "Asistencia individual").font(.system(size: 18, weight: .semibold))
+                Spacer()
+                Text(en ? "Person" : "Persona").font(.system(size: 12)).foregroundStyle(.secondary)
+            }
             ForEach(model.screen.people.filter { matches($0.name) }) { person in
                 if person.listed {
                     Button(person.line) { model.send(["op": "cycle", "personId": person.id]) }
                         .accessibilityIdentifier("nexo.person.\(person.id)")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 8)
                 } else if !model.screen.encounterTitle.isEmpty {
-                    Text(person.line).accessibilityIdentifier("nexo.offlist.\(person.id)")
+                    Text(person.line)
+                        .accessibilityIdentifier("nexo.offlist.\(person.id)")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 8)
                 }
             }
         }
@@ -424,20 +489,39 @@ public struct InterfaceView: View {
     }
 
     private func templates(_ en: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(en ? "Templates" : "Plantillas").font(.system(size: 40, weight: .bold))
-            TextField(en ? "Draft" : "Borrador", text: $draft, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityIdentifier("nexo.draft-text")
-            Button(en ? "Save draft" : "Guardar borrador") {
-                model.send(["op": "draft", "text": draft])
-            }
-            .accessibilityIdentifier("nexo.save-draft")
-            if !model.screen.draft.isEmpty {
-                Text(model.screen.draft).accessibilityIdentifier("nexo.draft-saved")
-            }
-            if !model.screen.warning.isEmpty {
-                Text(model.screen.warning).accessibilityIdentifier("nexo.draft-warning")
+        VStack(alignment: .leading, spacing: 28) {
+            Text(en ? "Templates" : "Plantillas")
+                .font(.system(size: 40, weight: .semibold))
+                .tracking(-1.2)
+            HStack(alignment: .top, spacing: 24) {
+                VStack(alignment: .leading, spacing: 12) {
+                    TextField(en ? "Draft" : "Borrador", text: $draft, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("nexo.draft-text")
+                    Button(en ? "Save draft" : "Guardar borrador") {
+                        model.send(["op": "draft", "text": draft])
+                    }
+                    .accessibilityIdentifier("nexo.save-draft")
+                    if !model.screen.draft.isEmpty {
+                        Text(model.screen.draft).font(.system(size: 12)).accessibilityIdentifier("nexo.draft-saved")
+                    }
+                    if !model.screen.warning.isEmpty {
+                        Text(model.screen.warning).font(.system(size: 12)).accessibilityIdentifier("nexo.draft-warning")
+                    }
+                }
+                .padding(22)
+                .frame(maxWidth: 280, minHeight: 220, alignment: .topLeading)
+                .background(.white, in: RoundedRectangle(cornerRadius: 4))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.89), lineWidth: 1))
+                VStack(spacing: 12) {
+                    Image(systemName: "doc")
+                        .font(.system(size: 28, weight: .light))
+                        .foregroundStyle(.secondary)
+                    Text(en ? "Blank template" : "Plantilla en blanco")
+                        .font(.system(size: 16, weight: .medium))
+                }
+                .frame(width: 160, height: 220)
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.8), style: StrokeStyle(lineWidth: 1, dash: [5])))
             }
         }
         .buttonStyle(.bordered)
@@ -445,7 +529,19 @@ public struct InterfaceView: View {
 
     private func organize(_ en: Bool) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(en ? "Organize" : "Organizar").font(.system(size: 40, weight: .bold))
+            Text(en ? "Organization" : "Organización")
+                .font(.system(size: 40, weight: .semibold))
+                .tracking(-1.2)
+            VStack(alignment: .leading, spacing: 12) {
+                Text("01").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(model.screen.componentName.isEmpty ? (en ? "Component" : "Componente") : model.screen.componentName)
+                    .font(.system(size: 32, weight: .semibold))
+                Text(model.screen.encounterTitle.isEmpty ? (en ? "0 encounters" : "0 encuentros") : (en ? "1 encounter" : "1 encuentro"))
+                    .font(.system(size: 12))
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
+            .background(Color(red: 0.886, green: 0.890, blue: 0.906), in: RoundedRectangle(cornerRadius: 16))
             Text(en ? "Review Drive stays on this Mac. Nothing is uploaded." : "Revisar Drive se queda en este Mac. No hay subidas.")
                 .foregroundStyle(.secondary)
             if !model.screen.encounterTitle.isEmpty {
@@ -569,6 +665,15 @@ public struct InterfaceView: View {
         return needle.isEmpty || text.localizedCaseInsensitiveContains(needle)
     }
 
+    private func avatarFill(_ index: Int) -> Color {
+        let fills = [
+            Color(red: 0.886, green: 0.890, blue: 0.906),
+            Color(red: 0.859, green: 0.867, blue: 0.886),
+            Color(red: 0.914, green: 0.914, blue: 0.925),
+        ]
+        return fills[index % fills.count]
+    }
+
     private func registeredLine(_ en: Bool) -> String {
         let count = model.screen.registered
         return en ? "\(count) of \(count) registered" : "\(count) de \(count) registrados"
@@ -650,6 +755,25 @@ public struct InterfaceView: View {
         formatter.amSymbol = en ? "a.m." : "a. m."
         formatter.pmSymbol = en ? "p.m." : "p. m."
         return formatter.string(from: day)
+    }
+}
+
+private struct EncounterWaves: Shape {
+    func path(in rect: CGRect) -> Path {
+        let sx = rect.width / 500
+        let sy = rect.height / 400
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * sx, y: y * sy) }
+        var path = Path()
+        path.move(to: p(-10, 340))
+        path.addCurve(to: p(235, 80), control1: p(100, 350), control2: p(64, 110))
+        path.addCurve(to: p(510, 125), control1: p(406, 50), control2: p(395, 227))
+        path.move(to: p(-10, 368))
+        path.addCurve(to: p(246, 110), control1: p(130, 364), control2: p(75, 137))
+        path.addCurve(to: p(520, 160), control1: p(417, 83), control2: p(410, 251))
+        path.move(to: p(-10, 394))
+        path.addCurve(to: p(256, 140), control1: p(140, 390), control2: p(95, 168))
+        path.addCurve(to: p(520, 194), control1: p(417, 112), control2: p(427, 280))
+        return path
     }
 }
 
