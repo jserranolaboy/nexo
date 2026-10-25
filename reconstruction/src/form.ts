@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import path from 'node:path'
 import { attendanceRate } from './attendance.ts'
 import {
   addComponent,
@@ -17,9 +18,16 @@ import { SYNTHETIC } from './journey.ts'
 import { suggestVolunteers } from './volunteers.ts'
 import { emptyWorkspace, type Workspace } from './model.ts'
 import { DomainError } from './errors.ts'
+import {
+  describeCollaboration,
+  resolvePausedAlternative,
+  runCollaborationJourney,
+} from './collaboration-journey.ts'
+import { migrateLegacyFile, revertToPreviousCopy } from './migrate.ts'
+import { syntheticLegacySource } from './interface.ts'
 
-/** Capacity is an input so the kernel can suggest. The order stays in suggestVolunteers. */
-const FORM_CAPACITY = 4
+/** Capacity is 1 so a second choice is over the quota. selectVolunteer still decides. */
+const FORM_CAPACITY = 1
 const CYCLE: readonly AttendanceStatus[] = ['pending', 'present', 'absent', 'excused']
 
 const words = {
@@ -33,6 +41,7 @@ const words = {
     suggestion: 'Sugerencia',
     none: 'ninguna',
     overflow: 'No cabe',
+    quota: 'Rechazo de cupo',
     interested: 'interesado',
     selected: 'seleccionado',
     declined: 'declinado',
@@ -49,6 +58,7 @@ const words = {
     suggestion: 'Suggestion',
     none: 'none',
     overflow: 'Does not fit',
+    quota: 'Quota refusal',
     interested: 'interested',
     selected: 'selected',
     declined: 'declined',
@@ -65,6 +75,11 @@ export interface FormPerson {
   volunteer: string
 }
 
+export interface FormAlternative {
+  id: string
+  value: string
+}
+
 export interface FormScreen {
   people: FormPerson[]
   encounterTitle: string
@@ -72,6 +87,9 @@ export interface FormScreen {
   draft: string
   warning: string
   error: string
+  refusal: string
+  collaboration: string
+  alternatives: FormAlternative[]
 }
 
 interface FormRequest {
@@ -82,6 +100,7 @@ interface FormRequest {
   roster?: string[]
   personId?: string
   text?: string
+  versionId?: string
 }
 
 export function applyForm(directory: string, payload: string): string {
@@ -100,7 +119,11 @@ export function applyForm(directory: string, payload: string): string {
     return JSON.stringify(screen)
   } catch (error) {
     const screen = safeDescribe(directory, lang)
-    screen.error = error instanceof DomainError ? error.code : error instanceof Error ? error.message : String(error)
+    if (error instanceof DomainError && error.code === 'capacity-exceeded') {
+      screen.refusal = `${words[lang].quota}: ${error.code}`
+    } else {
+      screen.error = error instanceof DomainError ? error.code : error instanceof Error ? error.message : String(error)
+    }
     return JSON.stringify(screen)
   }
 }
@@ -127,6 +150,18 @@ function change(directory: string, request: FormRequest): void {
       }),
       workspace.revision,
     )
+    return
+  }
+  if (request.op === 'collaborate' || request.op === 'choose-alternative' || request.op === 'restore') {
+    collaborate(directory, request)
+    return
+  }
+  if (request.op === 'migrate') {
+    migrateLegacyFile(directory, syntheticLegacySource(directory))
+    return
+  }
+  if (request.op === 'revert') {
+    revertToPreviousCopy(directory)
     return
   }
   const encounter = workspace.encounters[0]
@@ -166,6 +201,27 @@ function change(directory: string, request: FormRequest): void {
   throw new DomainError('unknown-form')
 }
 
+function collaborationDir(directory: string): string {
+  return path.join(directory, 'colaboracion')
+}
+
+function collaborate(directory: string, request: FormRequest): void {
+  const folder = collaborationDir(directory)
+  const store = new FileWorkspaceStore(folder)
+  if (request.op === 'collaborate') {
+    if (!existsSync(store.primaryPath())) runCollaborationJourney(folder)
+    return
+  }
+  if (request.op === 'choose-alternative') {
+    resolvePausedAlternative(folder, request.versionId ?? '')
+    return
+  }
+  const before = store.load().collaboration[0]?.pendingUploads.length ?? 0
+  const restored = store.restore(path.join(folder, 'synthetic-copy.json'))
+  const link = restored.collaboration[0]
+  if (!link?.paused || link.pendingUploads.length !== before) throw new DomainError('upload-enqueued')
+}
+
 function ensure(store: FileWorkspaceStore): Workspace {
   if (existsSync(store.primaryPath())) return store.load()
   let workspace = createSpace(store.initialize(emptyWorkspace()), {
@@ -190,7 +246,8 @@ function describeForm(directory: string, lang: 'es' | 'en'): FormScreen {
   const listed = new Set(
     encounter ? workspace.attendance.filter((row) => row.encounterId === encounter.id && !row.voided).map((row) => row.personId) : [],
   )
-  const suggestions = encounter ? suggestVolunteers(workspace, encounter.id, workspace.periods[0].id) : []
+  const periodId = workspace.periods[0]?.id
+  const suggestions = encounter && periodId ? suggestVolunteers(workspace, encounter.id, periodId) : []
   const names = new Map(workspace.people.map((person) => [person.id, person.name]))
   const people = workspace.people.map((person) => {
     const row = encounter ? workspace.attendance.find((item) => item.encounterId === encounter.id && item.personId === person.id && !item.voided) : undefined
@@ -208,6 +265,7 @@ function describeForm(directory: string, lang: 'es' | 'en'): FormScreen {
   })
   const suggestionNames = suggestions.map((item) => names.get(item.personId) ?? item.personId)
   const saved = new DocumentDraftStore(directory).readDocument()
+  const collaboration = collaborationView(directory, lang)
   return {
     people,
     encounterTitle: encounter?.title ?? '',
@@ -215,7 +273,32 @@ function describeForm(directory: string, lang: 'es' | 'en'): FormScreen {
     draft: saved?.rows[0]?.note ?? '',
     warning: '',
     error: '',
+    refusal: quotaLine(workspace, lang),
+    collaboration: collaboration.text,
+    alternatives: collaboration.alternatives,
   }
+}
+
+function quotaLine(workspace: Workspace, lang: 'es' | 'en'): string {
+  const encounter = workspace.encounters[0]
+  const interested = workspace.volunteers.find((item) => item.encounterId === encounter?.id && item.status === 'interested')
+  if (!encounter || !interested) return ''
+  try {
+    chooseVolunteer(workspace, encounter.id, interested.personId)
+  } catch (error) {
+    if (error instanceof DomainError && error.code === 'capacity-exceeded') return `${words[lang].quota}: ${error.code}`
+  }
+  return ''
+}
+
+function collaborationView(directory: string, lang: 'es' | 'en'): { text: string; alternatives: FormAlternative[] } {
+  const folder = collaborationDir(directory)
+  const store = new FileWorkspaceStore(folder)
+  if (!existsSync(store.primaryPath())) return { text: '', alternatives: [] }
+  const alternatives = store.load().collaboration.flatMap((link) =>
+    link.entries.flatMap((entry) => entry.versions.map((version) => ({ id: version.id, value: version.value }))),
+  )
+  return { text: describeCollaboration(folder, lang), alternatives }
 }
 
 function draftWarning(directory: string, note: string, lang: 'es' | 'en'): string {
@@ -247,5 +330,5 @@ function safeDescribe(directory: string, lang: 'es' | 'en'): FormScreen {
 }
 
 function emptyScreen(error: string): FormScreen {
-  return { people: [], encounterTitle: '', suggestion: '', draft: '', warning: '', error }
+  return { people: [], encounterTitle: '', suggestion: '', draft: '', warning: '', error, refusal: '', collaboration: '', alternatives: [] }
 }

@@ -14,6 +14,11 @@ struct FormPerson: Decodable, Identifiable {
     var volunteer: String
 }
 
+struct FormAlternative: Decodable, Identifiable {
+    var id: String
+    var value: String
+}
+
 struct FormScreen: Decodable {
     var people: [FormPerson] = []
     var encounterTitle = ""
@@ -21,6 +26,9 @@ struct FormScreen: Decodable {
     var draft = ""
     var warning = ""
     var error = ""
+    var refusal = ""
+    var collaboration = ""
+    var alternatives: [FormAlternative] = []
 }
 
 @MainActor
@@ -146,6 +154,30 @@ public struct InterfaceView: View {
                         }
                     }
                 }
+                if !model.screen.refusal.isEmpty {
+                    Text(model.screen.refusal).accessibilityIdentifier("nexo.refusal")
+                }
+                Button(en ? "Save collaboration" : "Guardar colaboración") {
+                    model.send(["op": "collaborate"])
+                }
+                .accessibilityIdentifier("nexo.collaborate")
+                if !model.screen.collaboration.isEmpty {
+                    Text(model.screen.collaboration).accessibilityIdentifier("nexo.collaboration")
+                    ForEach(model.screen.alternatives) { alternative in
+                        Button(en ? "Choose \(alternative.value)" : "Elegir \(alternative.value)") {
+                            model.send(["op": "choose-alternative", "versionId": alternative.id])
+                        }
+                        .accessibilityIdentifier("nexo.alternative.\(alternative.id)")
+                    }
+                    Button(en ? "Restore" : "Restaurar") {
+                        model.send(["op": "restore"])
+                    }
+                    .accessibilityIdentifier("nexo.restore")
+                }
+                Button(en ? "Migrate" : "Migrar") { model.send(["op": "migrate"]) }
+                    .accessibilityIdentifier("nexo.migrate")
+                Button(en ? "Revert" : "Revertir") { model.send(["op": "revert"]) }
+                    .accessibilityIdentifier("nexo.revert")
 
                 TextField(en ? "Draft" : "Borrador", text: $draft, axis: .vertical)
                     .textFieldStyle(.roundedBorder)

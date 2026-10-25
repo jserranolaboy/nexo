@@ -225,6 +225,11 @@ function section(title: string, body: string): string {
   return `${title}\n${body}`
 }
 
+/** One synthetic workspace-v1.json next to the form. migrate.ts accepts or rejects it. */
+export function syntheticLegacySource(directory: string): string {
+  return writeLegacy(directory, 'origen', LEGACY.alfa, 'Persona Alfa', true)
+}
+
 /** Synthetic workspace-v1.json. migrate.ts accepts or rejects it; this object does not. */
 function writeLegacy(directory: string, folder: string, personId: string, personName: string, includeGamma: boolean): string {
   const members = [
