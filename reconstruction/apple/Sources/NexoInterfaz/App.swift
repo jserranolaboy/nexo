@@ -12,12 +12,12 @@ struct NexoInterfazApp: App {
     var body: some Scene {
         WindowGroup("Nexo") {
             InterfaceView()
-                .frame(minWidth: 880, minHeight: 720)
+                .frame(minWidth: 1080, minHeight: 760)
                 .onAppear {
                     NSApplication.shared.activate(ignoringOtherApps: true)
-                    NSApplication.shared.windows.first?.setFrame(NSRect(x: 40, y: 40, width: 980, height: 840), display: true)
+                    NSApplication.shared.windows.first?.setFrame(NSRect(x: 80, y: 60, width: 1280, height: 840), display: true)
                 }
         }
-        .defaultSize(width: 980, height: 840)
+        .defaultSize(width: 1280, height: 840)
     }
 }

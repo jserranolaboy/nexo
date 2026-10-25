@@ -2355,7 +2355,7 @@ ${body}`;
       return;
     }
     if (request.op === "create-encounter") {
-      if (workspace.encounters.length > 0) return;
+      if (workspace.encounters.length > 0) throw new DomainError("encounter-exists");
       const roster = Array.isArray(request.roster) ? request.roster.filter((id) => typeof id === "string") : [];
       store.save(
         createEncounter(workspace, {
@@ -2480,6 +2480,8 @@ ${body}`;
     const suggestionNames = suggestions.map((item) => names.get(item.personId) ?? item.personId);
     const saved = new DocumentDraftStore(directory).readDocument();
     const collaboration = collaborationView(directory, lang);
+    const space = workspace.spaces[0];
+    const component = workspace.components.find((item) => item.id === encounter?.componentId) ?? workspace.components[0];
     return {
       people,
       encounterTitle: encounter?.title ?? "",
@@ -2489,7 +2491,13 @@ ${body}`;
       error: "",
       refusal: quotaLine(workspace, lang),
       collaboration: collaboration.text,
-      alternatives: collaboration.alternatives
+      alternatives: collaboration.alternatives,
+      spaceName: space?.name ?? "",
+      periodName: workspace.periods[0]?.name ?? "",
+      timeZone: space?.timeZone ?? "Etc/UTC",
+      startsAt: encounter?.startsAt ?? "",
+      componentName: component?.name ?? "",
+      registered: listed.size
     };
   }
   function quotaLine(workspace, lang) {
@@ -2539,7 +2547,23 @@ ${body}`;
     }
   }
   function emptyScreen(error) {
-    return { people: [], encounterTitle: "", suggestion: "", draft: "", warning: "", error, refusal: "", collaboration: "", alternatives: [] };
+    return {
+      people: [],
+      encounterTitle: "",
+      suggestion: "",
+      draft: "",
+      warning: "",
+      error,
+      refusal: "",
+      collaboration: "",
+      alternatives: [],
+      spaceName: "",
+      periodName: "",
+      timeZone: "Etc/UTC",
+      startsAt: "",
+      componentName: "",
+      registered: 0
+    };
   }
 
   // src/embedded-entry.ts

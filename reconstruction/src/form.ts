@@ -90,6 +90,12 @@ export interface FormScreen {
   refusal: string
   collaboration: string
   alternatives: FormAlternative[]
+  spaceName: string
+  periodName: string
+  timeZone: string
+  startsAt: string
+  componentName: string
+  registered: number
 }
 
 interface FormRequest {
@@ -137,7 +143,7 @@ function change(directory: string, request: FormRequest): void {
     return
   }
   if (request.op === 'create-encounter') {
-    if (workspace.encounters.length > 0) return
+    if (workspace.encounters.length > 0) throw new DomainError('encounter-exists')
     const roster = Array.isArray(request.roster) ? request.roster.filter((id) => typeof id === 'string') : []
     store.save(
       createEncounter(workspace, {
@@ -266,6 +272,8 @@ function describeForm(directory: string, lang: 'es' | 'en'): FormScreen {
   const suggestionNames = suggestions.map((item) => names.get(item.personId) ?? item.personId)
   const saved = new DocumentDraftStore(directory).readDocument()
   const collaboration = collaborationView(directory, lang)
+  const space = workspace.spaces[0]
+  const component = workspace.components.find((item) => item.id === encounter?.componentId) ?? workspace.components[0]
   return {
     people,
     encounterTitle: encounter?.title ?? '',
@@ -276,6 +284,12 @@ function describeForm(directory: string, lang: 'es' | 'en'): FormScreen {
     refusal: quotaLine(workspace, lang),
     collaboration: collaboration.text,
     alternatives: collaboration.alternatives,
+    spaceName: space?.name ?? '',
+    periodName: workspace.periods[0]?.name ?? '',
+    timeZone: space?.timeZone ?? 'Etc/UTC',
+    startsAt: encounter?.startsAt ?? '',
+    componentName: component?.name ?? '',
+    registered: listed.size,
   }
 }
 
@@ -330,5 +344,21 @@ function safeDescribe(directory: string, lang: 'es' | 'en'): FormScreen {
 }
 
 function emptyScreen(error: string): FormScreen {
-  return { people: [], encounterTitle: '', suggestion: '', draft: '', warning: '', error, refusal: '', collaboration: '', alternatives: [] }
+  return {
+    people: [],
+    encounterTitle: '',
+    suggestion: '',
+    draft: '',
+    warning: '',
+    error,
+    refusal: '',
+    collaboration: '',
+    alternatives: [],
+    spaceName: '',
+    periodName: '',
+    timeZone: 'Etc/UTC',
+    startsAt: '',
+    componentName: '',
+    registered: 0,
+  }
 }

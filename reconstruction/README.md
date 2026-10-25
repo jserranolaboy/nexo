@@ -72,7 +72,7 @@ node --experimental-strip-types src/cli.ts interface-show --directory /tmp/nexo-
 
 ## Ventana
 
-Mac abre una ventana. iPhone e iPad abren la misma pantalla en el simulador. La persona escribe el nombre, el título y el borrador; el núcleo guarda en el mismo directorio temporal. Elegir por encima del cupo muestra el rechazo y no cambia la selección. La colaboración muestra las alternativas, deja elegir una y, al restaurar, queda en pausa y sin subidas. Migrar lee un `workspace-v1.json` sintético y revertir vuelve a la copia anterior. En Mac la ventana llama a `form`. En iOS el mismo núcleo va empaquetado en `apple/Sources/NexoInterfazUI/kernel.js` y corre en JavaScriptCore; no usa Node del sistema ni el ejecutable de Mac.
+Mac abre una ventana con la composición de Encuentros: barra, calendario, ficha y las secciones Encuentros, Personas, Asistencia, Plantillas y Organizar. iPhone e iPad abren la misma pantalla. «Revisar Drive» no sincroniza. La persona escribe el nombre, el título y el borrador; el núcleo guarda en el mismo directorio temporal. Elegir por encima del cupo muestra el rechazo y no cambia la selección. La colaboración muestra las alternativas, deja elegir una y, al restaurar, queda en pausa y sin subidas. Migrar lee un `workspace-v1.json` sintético y revertir vuelve a la copia anterior. En Mac la ventana llama a `form`. En iOS el mismo núcleo va empaquetado en `apple/Sources/NexoInterfazUI/kernel.js` y corre en JavaScriptCore; no usa Node del sistema ni el ejecutable de Mac.
 
 ```sh
 node scripts/bundle-kernel.mjs

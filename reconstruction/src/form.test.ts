@@ -16,6 +16,12 @@ test('a person fills the form and the same directory reopens', () => {
     roster: [alfa.id, beta.id],
   })
   assert.equal(created.encounterTitle, 'Encuentro del sábado')
+  assert.equal(created.spaceName, 'Espacio sintético')
+  assert.equal(created.startsAt, '2026-10-24T15:00:00.000Z')
+  assert.equal(created.registered, 2)
+  const duplicate = send(directory, { op: 'create-encounter', title: 'Otro', roster: [] })
+  assert.equal(duplicate.error, 'encounter-exists')
+  assert.equal(duplicate.encounterTitle, 'Encuentro del sábado')
   assert.equal(person(created, 'Persona Gamma').listed, false)
   assert.match(person(created, 'Persona Gamma').line, /fuera de la lista/)
   assert.match(person(created, 'Persona Gamma').line, /sin encuentros evaluables/)
