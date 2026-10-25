@@ -19,6 +19,17 @@ struct FormAlternative: Decodable, Identifiable {
     var value: String
 }
 
+struct FormNamed: Decodable, Identifiable {
+    var id: String
+    var name: String
+}
+
+struct FormComponent: Decodable, Identifiable {
+    var id: String
+    var name: String
+    var encounters: Int
+}
+
 struct FormScreen: Decodable {
     var people: [FormPerson] = []
     var encounterTitle = ""
@@ -31,9 +42,15 @@ struct FormScreen: Decodable {
     var alternatives: [FormAlternative] = []
     var spaceName = ""
     var periodName = ""
+    var spaceId = ""
+    var periodId = ""
+    var spaces: [FormNamed] = []
+    var periods: [FormNamed] = []
     var timeZone = "Etc/UTC"
     var startsAt = ""
     var componentName = ""
+    var components: [FormComponent] = []
+    var groups: [FormNamed] = []
     var registered = 0
 }
 
@@ -94,6 +111,9 @@ public struct InterfaceView: View {
     @State private var encounterTitle = ""
     @State private var roster: Set<String> = []
     @State private var draft = ""
+    @State private var draftDirty = false
+    @State private var componentName = ""
+    @State private var groupName = ""
     @State private var query = ""
     @State private var creating = false
     @State private var section = NexoSection.encounters
@@ -122,6 +142,18 @@ public struct InterfaceView: View {
         .preferredColorScheme(.light)
         .onAppear { model.reload() }
         .onChange(of: model.english) { _, _ in model.reload() }
+        .onChange(of: model.screen.draft) { _, saved in
+            if !draftDirty { draft = saved }
+        }
+        .onChange(of: draft) { _, value in
+            if value != model.screen.draft { draftDirty = true }
+        }
+        .onChange(of: model.screen.components.count) { old, new in
+            if new > old { componentName = "" }
+        }
+        .onChange(of: model.screen.groups.count) { old, new in
+            if new > old { groupName = "" }
+        }
     }
 
     private func topBar(_ en: Bool) -> some View {
@@ -137,14 +169,14 @@ public struct InterfaceView: View {
                 Text("N").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
                     .frame(width: 24, height: 24).background(Color.black, in: RoundedRectangle(cornerRadius: 6))
                 Text("Nexo").font(.system(size: 17, weight: .semibold)).lineLimit(1)
-                Text(model.screen.spaceName).font(.system(size: 14)).lineLimit(1).accessibilityIdentifier("nexo.space")
+                spaceControl(size: 14)
                 Spacer(minLength: 8)
                 Button(en ? "Español" : "English") { model.english.toggle() }
                     .buttonStyle(.plain).font(.system(size: 13)).lineLimit(1)
                     .accessibilityIdentifier("nexo.language")
             }
             HStack(spacing: 8) {
-                Text(model.screen.periodName).font(.system(size: 13)).lineLimit(1).accessibilityIdentifier("nexo.period")
+                periodControl(size: 13)
                 Spacer(minLength: 8)
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("", text: $query).textFieldStyle(.plain).frame(width: 72).accessibilityIdentifier("nexo.search")
@@ -169,17 +201,9 @@ public struct InterfaceView: View {
                     .foregroundStyle(.white)
                 Text("Nexo").font(.system(size: 17, weight: .semibold))
             }
-            Text(model.screen.spaceName)
-                .font(.system(size: 15))
-                .lineLimit(1)
-                .accessibilityIdentifier("nexo.space")
-            Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+            spaceControl(size: 15)
             Spacer(minLength: 12)
-            Text(model.screen.periodName)
-                .font(.system(size: 14))
-                .lineLimit(1)
-                .accessibilityIdentifier("nexo.period")
-            Image(systemName: "chevron.down").font(.system(size: 11)).foregroundStyle(.secondary)
+            periodControl(size: 14)
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("", text: $query)
@@ -508,16 +532,26 @@ public struct InterfaceView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     TextField(en ? "Draft" : "Borrador", text: $draft, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
+                        .lineLimit(3...12)
                         .accessibilityIdentifier("nexo.draft-text")
                     Button(en ? "Save draft" : "Guardar borrador") {
-                        model.send(["op": "draft", "text": draft])
+                        let text = !draftDirty && draft.isEmpty ? model.screen.draft : draft
+                        model.send(["op": "draft", "text": text])
                     }
                     .accessibilityIdentifier("nexo.save-draft")
                     if !model.screen.draft.isEmpty {
-                        Text(model.screen.draft).font(.system(size: 12)).accessibilityIdentifier("nexo.draft-saved")
+                        Text(model.screen.draft)
+                            .font(.system(size: 12))
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("nexo.draft-saved")
                     }
                     if !model.screen.warning.isEmpty {
-                        Text(model.screen.warning).font(.system(size: 12)).accessibilityIdentifier("nexo.draft-warning")
+                        Text(model.screen.warning)
+                            .font(.system(size: 12))
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("nexo.draft-warning")
                     }
                 }
                 .padding(22)
@@ -528,8 +562,11 @@ public struct InterfaceView: View {
                     Image(systemName: "doc")
                         .font(.system(size: 28, weight: .light))
                         .foregroundStyle(.secondary)
-                    Text(en ? "Blank template" : "Plantilla en blanco")
+                    Text(model.screen.draft.isEmpty ? (en ? "Blank template" : "Plantilla en blanco") : model.screen.draft)
                         .font(.system(size: 16, weight: .medium))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(nil)
+                        .accessibilityIdentifier("nexo.template-card")
                 }
                 .frame(width: 160, height: 220)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.8), style: StrokeStyle(lineWidth: 1, dash: [5])))
@@ -545,28 +582,54 @@ public struct InterfaceView: View {
                     .font(.system(size: 40, weight: .semibold))
                     .tracking(-1.2)
                 Spacer()
-                Text(en ? "Create component" : "Crear componente")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(cardInk, in: RoundedRectangle(cornerRadius: 9))
+                Button(action: addComponent) {
+                    Text(en ? "Create component" : "Crear componente")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(cardInk, in: RoundedRectangle(cornerRadius: 9))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("nexo.add-component")
             }
-            VStack(alignment: .leading, spacing: 12) {
-                Text("01").font(.system(size: 11)).foregroundStyle(.secondary)
-                Text(model.screen.componentName.isEmpty ? (en ? "Component" : "Componente") : model.screen.componentName)
-                    .font(.system(size: 32, weight: .semibold))
-                Text(model.screen.encounterTitle.isEmpty ? (en ? "0 encounters" : "0 encuentros") : (en ? "1 encounter" : "1 encuentro"))
-                    .font(.system(size: 12))
+            TextField(en ? "Component name" : "Nombre del componente", text: $componentName)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("nexo.component-name")
+                .onSubmit { addComponent() }
+            ForEach(Array(model.screen.components.enumerated()), id: \.element.id) { index, component in
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(String(format: "%02d", index + 1)).font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text(component.name)
+                        .font(.system(size: 32, weight: .semibold))
+                        .accessibilityIdentifier("nexo.component.\(component.id)")
+                    Text(encounterCount(component.encounters, en: en))
+                        .font(.system(size: 12))
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
+                .background(Color(red: 0.886, green: 0.890, blue: 0.906), in: RoundedRectangle(cornerRadius: 16))
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
-            .background(Color(red: 0.886, green: 0.890, blue: 0.906), in: RoundedRectangle(cornerRadius: 16))
             Text(en ? "People groups" : "Grupos de personas")
                 .font(.system(size: 18, weight: .semibold))
-            Text(en ? "No groups" : "Sin grupos")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
+            TextField(en ? "Group name" : "Nombre del grupo", text: $groupName)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("nexo.group-name")
+                .onSubmit { addGroup() }
+            Button(en ? "Create group" : "Crear grupo", action: addGroup)
+                .accessibilityIdentifier("nexo.add-group")
+            if model.screen.groups.isEmpty {
+                Text(en ? "No groups" : "Sin grupos")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("nexo.groups-empty")
+            } else {
+                ForEach(model.screen.groups) { group in
+                    Text(group.name)
+                        .font(.system(size: 16, weight: .medium))
+                        .accessibilityIdentifier("nexo.group.\(group.id)")
+                }
+            }
             Text(en ? "Review Drive stays on this Mac. Nothing is uploaded." : "Revisar Drive se queda en este Mac. No hay subidas.")
                 .foregroundStyle(.secondary)
             if !model.screen.encounterTitle.isEmpty {
@@ -662,6 +725,52 @@ public struct InterfaceView: View {
         case .templates: "doc.text"
         case .organize: "square.stack.3d.up"
         }
+    }
+
+    @ViewBuilder
+    private func spaceControl(size: CGFloat) -> some View {
+        Text(model.screen.spaceName)
+            .font(.system(size: size))
+            .lineLimit(1)
+            .accessibilityIdentifier("nexo.space")
+    }
+
+    @ViewBuilder
+    private func periodControl(size: CGFloat) -> some View {
+        let name = Text(model.screen.periodName).font(.system(size: size)).lineLimit(1)
+        if model.screen.periods.count > 1 {
+            Button(action: cyclePeriod) {
+                HStack(spacing: 4) {
+                    name
+                    Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("nexo.period")
+        } else {
+            name.accessibilityIdentifier("nexo.period")
+        }
+    }
+
+    private func cyclePeriod() {
+        let periods = model.screen.periods
+        guard periods.count > 1 else { return }
+        let index = periods.firstIndex { $0.id == model.screen.periodId } ?? 0
+        let next = periods[(index + 1) % periods.count]
+        model.send(["op": "select-period", "periodId": next.id])
+    }
+
+    private func addComponent() {
+        model.send(["op": "add-component", "name": componentName])
+    }
+
+    private func addGroup() {
+        model.send(["op": "add-group", "name": groupName])
+    }
+
+    private func encounterCount(_ count: Int, en: Bool) -> String {
+        if en { return count == 1 ? "1 encounter" : "\(count) encounters" }
+        return count == 1 ? "1 encuentro" : "\(count) encuentros"
     }
 
     private func addPerson() {

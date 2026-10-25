@@ -1,8 +1,9 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { attendanceRate } from './attendance.ts'
 import {
   addComponent,
+  addGroup,
   addPeriod,
   addPerson,
   chooseVolunteer,
@@ -12,12 +13,12 @@ import {
   setAttendance,
   systemClock,
 } from './commands.ts'
-import type { AttendanceStatus } from './model.ts'
+import { emptyWorkspace, type AttendanceStatus, type Encounter, type Period, type Space, type Workspace } from './model.ts'
 import { DocumentDraftStore, FileWorkspaceStore } from './store.ts'
 import { SYNTHETIC } from './journey.ts'
 import { suggestVolunteers } from './volunteers.ts'
-import { emptyWorkspace, type Workspace } from './model.ts'
 import { DomainError } from './errors.ts'
+import { containsInstant } from './time.ts'
 import {
   describeCollaboration,
   resolvePausedAlternative,
@@ -28,6 +29,11 @@ import { syntheticLegacySource } from './interface.ts'
 
 /** Capacity is 1 so a second choice is over the quota. selectVolunteer still decides. */
 const FORM_CAPACITY = 1
+const EARLIER_PERIOD = {
+  name: 'Período anterior',
+  startsAt: '2025-01-01T00:00:00.000Z',
+  endsAt: SYNTHETIC.periodStart,
+} as const
 const CYCLE: readonly AttendanceStatus[] = ['pending', 'present', 'absent', 'excused']
 
 const words = {
@@ -80,6 +86,17 @@ export interface FormAlternative {
   value: string
 }
 
+export interface FormNamed {
+  id: string
+  name: string
+}
+
+export interface FormComponent {
+  id: string
+  name: string
+  encounters: number
+}
+
 export interface FormScreen {
   people: FormPerson[]
   encounterTitle: string
@@ -92,9 +109,15 @@ export interface FormScreen {
   alternatives: FormAlternative[]
   spaceName: string
   periodName: string
+  spaceId: string
+  periodId: string
+  spaces: FormNamed[]
+  periods: FormNamed[]
   timeZone: string
   startsAt: string
   componentName: string
+  components: FormComponent[]
+  groups: FormNamed[]
   registered: number
 }
 
@@ -107,6 +130,7 @@ interface FormRequest {
   personId?: string
   text?: string
   versionId?: string
+  periodId?: string
 }
 
 export function applyForm(directory: string, payload: string): string {
@@ -142,6 +166,21 @@ function change(directory: string, request: FormRequest): void {
     store.save(addPerson(workspace, { spaceId: workspace.spaces[0].id, name: request.name ?? '' }), workspace.revision)
     return
   }
+  if (request.op === 'add-component') {
+    store.save(addComponent(workspace, { spaceId: workspace.spaces[0].id, name: textOf(request.name) }), workspace.revision)
+    return
+  }
+  if (request.op === 'add-group') {
+    store.save(addGroup(workspace, { spaceId: workspace.spaces[0].id, name: textOf(request.name) }), workspace.revision)
+    return
+  }
+  if (request.op === 'select-period') {
+    const space = activeSpace(workspace, readSelection(directory))
+    const period = workspace.periods.find((item) => item.id === request.periodId && item.spaceId === space?.id)
+    if (!space || !period) throw new DomainError('missing-period')
+    writeSelection(directory, { spaceId: space.id, periodId: period.id })
+    return
+  }
   if (request.op === 'create-encounter') {
     if (workspace.encounters.length > 0) throw new DomainError('encounter-exists')
     const roster = Array.isArray(request.roster) ? request.roster.filter((id) => typeof id === 'string') : []
@@ -156,6 +195,10 @@ function change(directory: string, request: FormRequest): void {
       }),
       workspace.revision,
     )
+    const period = workspace.periods.find(
+      (item) => item.spaceId === workspace.spaces[0].id && containsInstant(item.startsAt, item.endsAt, SYNTHETIC.encounterAt),
+    )
+    if (period) writeSelection(directory, { spaceId: workspace.spaces[0].id, periodId: period.id })
     return
   }
   if (request.op === 'collaborate' || request.op === 'choose-alternative' || request.op === 'restore') {
@@ -170,6 +213,7 @@ function change(directory: string, request: FormRequest): void {
     revertToPreviousCopy(directory)
     return
   }
+  if (request.op === 'draft') return
   const encounter = workspace.encounters[0]
   if (!encounter) throw new DomainError('missing-encounter')
   if (request.op === 'cycle') {
@@ -203,7 +247,6 @@ function change(directory: string, request: FormRequest): void {
     store.save(chooseVolunteer(workspace, encounter.id, request.personId ?? ''), workspace.revision)
     return
   }
-  if (request.op === 'draft') return
   throw new DomainError('unknown-form')
 }
 
@@ -241,6 +284,12 @@ function ensure(store: FileWorkspaceStore): Workspace {
     startsAt: SYNTHETIC.periodStart,
     endsAt: SYNTHETIC.periodEnd,
   })
+  workspace = addPeriod(workspace, {
+    spaceId,
+    name: EARLIER_PERIOD.name,
+    startsAt: EARLIER_PERIOD.startsAt,
+    endsAt: EARLIER_PERIOD.endsAt,
+  })
   workspace = addComponent(workspace, { spaceId, name: 'Componente sintético' })
   return store.save(workspace, 0)
 }
@@ -248,32 +297,39 @@ function ensure(store: FileWorkspaceStore): Workspace {
 function describeForm(directory: string, lang: 'es' | 'en'): FormScreen {
   const workspace = new FileWorkspaceStore(directory).load()
   const text = words[lang]
-  const encounter = workspace.encounters[0]
+  const selection = readSelection(directory)
+  const space = activeSpace(workspace, selection)
+  const periods = workspace.periods.filter((item) => item.spaceId === space?.id)
+  const period = periods.find((item) => item.id === selection.periodId) ?? periods[0]
+  const encounter = visibleEncounter(workspace, space?.id, period)
   const listed = new Set(
     encounter ? workspace.attendance.filter((row) => row.encounterId === encounter.id && !row.voided).map((row) => row.personId) : [],
   )
-  const periodId = workspace.periods[0]?.id
-  const suggestions = encounter && periodId ? suggestVolunteers(workspace, encounter.id, periodId) : []
+  const suggestions = encounter && period ? suggestVolunteers(workspace, encounter.id, period.id) : []
   const names = new Map(workspace.people.map((person) => [person.id, person.name]))
-  const people = workspace.people.map((person) => {
-    const row = encounter ? workspace.attendance.find((item) => item.encounterId === encounter.id && item.personId === person.id && !item.voided) : undefined
-    const rate = attendanceRate(workspace, person.id, workspace.periods[0]?.id)
-    const score = rate.ratio == null ? text.empty : `${rate.present}/${rate.counted}`
-    const mark = row ? text[row.status] : text.off
-    const entry = workspace.volunteers.find((item) => item.personId === person.id && item.encounterId === encounter?.id)
-    return {
-      id: person.id,
-      name: person.name,
-      listed: listed.has(person.id),
-      line: `${person.name}: ${mark}; ${score}`,
-      volunteer: entry ? text[entry.status] : '',
-    }
-  })
+  const people = workspace.people
+    .filter((person) => person.spaceId === space?.id)
+    .map((person) => {
+      const row = encounter
+        ? workspace.attendance.find((item) => item.encounterId === encounter.id && item.personId === person.id && !item.voided)
+        : undefined
+      const rate = attendanceRate(workspace, person.id, period?.id)
+      const score = rate.ratio == null ? text.empty : `${rate.present}/${rate.counted}`
+      const mark = row ? text[row.status] : text.off
+      const entry = workspace.volunteers.find((item) => item.personId === person.id && item.encounterId === encounter?.id)
+      return {
+        id: person.id,
+        name: person.name,
+        listed: listed.has(person.id),
+        line: `${person.name}: ${mark}; ${score}`,
+        volunteer: entry ? text[entry.status] : '',
+      }
+    })
   const suggestionNames = suggestions.map((item) => names.get(item.personId) ?? item.personId)
   const saved = new DocumentDraftStore(directory).readDocument()
   const collaboration = collaborationView(directory, lang)
-  const space = workspace.spaces[0]
-  const component = workspace.components.find((item) => item.id === encounter?.componentId) ?? workspace.components[0]
+  const components = workspace.components.filter((item) => item.spaceId === space?.id)
+  const component = components.find((item) => item.id === encounter?.componentId) ?? components[0]
   return {
     people,
     encounterTitle: encounter?.title ?? '',
@@ -281,20 +337,29 @@ function describeForm(directory: string, lang: 'es' | 'en'): FormScreen {
     draft: saved?.rows[0]?.note ?? '',
     warning: '',
     error: '',
-    refusal: quotaLine(workspace, lang),
+    refusal: quotaLine(workspace, encounter, lang),
     collaboration: collaboration.text,
     alternatives: collaboration.alternatives,
     spaceName: space?.name ?? '',
-    periodName: workspace.periods[0]?.name ?? '',
+    periodName: period?.name ?? '',
+    spaceId: space?.id ?? '',
+    periodId: period?.id ?? '',
+    spaces: workspace.spaces.map((item) => ({ id: item.id, name: item.name })),
+    periods: periods.map((item) => ({ id: item.id, name: item.name })),
     timeZone: space?.timeZone ?? 'Etc/UTC',
     startsAt: encounter?.startsAt ?? '',
     componentName: component?.name ?? '',
+    components: components.map((item) => ({
+      id: item.id,
+      name: item.name,
+      encounters: workspace.encounters.filter((row) => row.componentId === item.id && row.spaceId === space?.id).length,
+    })),
+    groups: workspace.groups.filter((item) => item.spaceId === space?.id).map((item) => ({ id: item.id, name: item.name })),
     registered: listed.size,
   }
 }
 
-function quotaLine(workspace: Workspace, lang: 'es' | 'en'): string {
-  const encounter = workspace.encounters[0]
+function quotaLine(workspace: Workspace, encounter: Encounter | undefined, lang: 'es' | 'en'): string {
   const interested = workspace.volunteers.find((item) => item.encounterId === encounter?.id && item.status === 'interested')
   if (!encounter || !interested) return ''
   try {
@@ -356,9 +421,58 @@ function emptyScreen(error: string): FormScreen {
     alternatives: [],
     spaceName: '',
     periodName: '',
+    spaceId: '',
+    periodId: '',
+    spaces: [],
+    periods: [],
     timeZone: 'Etc/UTC',
     startsAt: '',
     componentName: '',
+    components: [],
+    groups: [],
     registered: 0,
   }
+}
+
+interface Selection {
+  spaceId: string
+  periodId: string
+}
+
+function selectionPath(directory: string): string {
+  return path.join(directory, 'interface-selection.json')
+}
+
+function readSelection(directory: string): Selection {
+  const file = selectionPath(directory)
+  if (!existsSync(file)) return { spaceId: '', periodId: '' }
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'))
+    if (!parsed || typeof parsed !== 'object') return { spaceId: '', periodId: '' }
+    const record = parsed as { spaceId?: unknown; periodId?: unknown }
+    return {
+      spaceId: typeof record.spaceId === 'string' ? record.spaceId : '',
+      periodId: typeof record.periodId === 'string' ? record.periodId : '',
+    }
+  } catch {
+    return { spaceId: '', periodId: '' }
+  }
+}
+
+function writeSelection(directory: string, selection: Selection): void {
+  writeFileSync(selectionPath(directory), `${JSON.stringify(selection)}\n`)
+}
+
+function activeSpace(workspace: Workspace, selection: Selection): Space | undefined {
+  return workspace.spaces.find((item) => item.id === selection.spaceId) ?? workspace.spaces[0]
+}
+
+function visibleEncounter(workspace: Workspace, spaceId: string | undefined, period: Period | undefined): Encounter | undefined {
+  const encounters = workspace.encounters.filter((item) => item.spaceId === spaceId)
+  if (!period) return encounters[0]
+  return encounters.find((item) => containsInstant(period.startsAt, period.endsAt, item.startsAt))
+}
+
+function textOf(value: unknown): string {
+  return typeof value === 'string' ? value : ''
 }

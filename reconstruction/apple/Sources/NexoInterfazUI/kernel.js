@@ -431,6 +431,7 @@
     for (const group of workspace.groups) {
       canonicalId(group.id);
       if (!spaces.has(group.spaceId)) throw new DomainError("broken-relationship");
+      if (!group.name.trim() || group.name.length > 200) throw new DomainError("invalid-name");
     }
     const groups = new Set(workspace.groups.map((item) => item.id));
     for (const membership of workspace.memberships) {
@@ -445,6 +446,7 @@
     for (const component of workspace.components) {
       canonicalId(component.id);
       if (!spaces.has(component.spaceId)) throw new DomainError("broken-relationship");
+      if (!component.name.trim() || component.name.length > 200) throw new DomainError("invalid-name");
     }
     for (const encounter of workspace.encounters) {
       canonicalId(encounter.id);
@@ -523,6 +525,15 @@
         spaceId: canonicalId(input.spaceId),
         name: input.name.trim(),
         active: input.active ?? true
+      });
+    });
+  }
+  function addGroup(workspace, input) {
+    return draft(workspace, (next) => {
+      next.groups.push({
+        id: canonicalId(input.id ?? newId()),
+        spaceId: canonicalId(input.spaceId),
+        name: input.name.trim()
       });
     });
   }
@@ -2285,6 +2296,11 @@ ${body}`;
 
   // src/form.ts
   var FORM_CAPACITY = 1;
+  var EARLIER_PERIOD = {
+    name: "Per\xEDodo anterior",
+    startsAt: "2025-01-01T00:00:00.000Z",
+    endsAt: SYNTHETIC.periodStart
+  };
   var CYCLE = ["pending", "present", "absent", "excused"];
   var words = {
     es: {
@@ -2354,6 +2370,21 @@ ${body}`;
       store.save(addPerson(workspace, { spaceId: workspace.spaces[0].id, name: request.name ?? "" }), workspace.revision);
       return;
     }
+    if (request.op === "add-component") {
+      store.save(addComponent(workspace, { spaceId: workspace.spaces[0].id, name: textOf(request.name) }), workspace.revision);
+      return;
+    }
+    if (request.op === "add-group") {
+      store.save(addGroup(workspace, { spaceId: workspace.spaces[0].id, name: textOf(request.name) }), workspace.revision);
+      return;
+    }
+    if (request.op === "select-period") {
+      const space = activeSpace(workspace, readSelection(directory));
+      const period = workspace.periods.find((item) => item.id === request.periodId && item.spaceId === space?.id);
+      if (!space || !period) throw new DomainError("missing-period");
+      writeSelection(directory, { spaceId: space.id, periodId: period.id });
+      return;
+    }
     if (request.op === "create-encounter") {
       if (workspace.encounters.length > 0) throw new DomainError("encounter-exists");
       const roster = Array.isArray(request.roster) ? request.roster.filter((id) => typeof id === "string") : [];
@@ -2368,6 +2399,10 @@ ${body}`;
         }),
         workspace.revision
       );
+      const period = workspace.periods.find(
+        (item) => item.spaceId === workspace.spaces[0].id && containsInstant(item.startsAt, item.endsAt, SYNTHETIC.encounterAt)
+      );
+      if (period) writeSelection(directory, { spaceId: workspace.spaces[0].id, periodId: period.id });
       return;
     }
     if (request.op === "collaborate" || request.op === "choose-alternative" || request.op === "restore") {
@@ -2382,6 +2417,7 @@ ${body}`;
       revertToPreviousCopy(directory);
       return;
     }
+    if (request.op === "draft") return;
     const encounter = workspace.encounters[0];
     if (!encounter) throw new DomainError("missing-encounter");
     if (request.op === "cycle") {
@@ -2415,7 +2451,6 @@ ${body}`;
       store.save(chooseVolunteer(workspace, encounter.id, request.personId ?? ""), workspace.revision);
       return;
     }
-    if (request.op === "draft") return;
     throw new DomainError("unknown-form");
   }
   function collaborationDir(directory) {
@@ -2450,22 +2485,31 @@ ${body}`;
       startsAt: SYNTHETIC.periodStart,
       endsAt: SYNTHETIC.periodEnd
     });
+    workspace = addPeriod(workspace, {
+      spaceId,
+      name: EARLIER_PERIOD.name,
+      startsAt: EARLIER_PERIOD.startsAt,
+      endsAt: EARLIER_PERIOD.endsAt
+    });
     workspace = addComponent(workspace, { spaceId, name: "Componente sint\xE9tico" });
     return store.save(workspace, 0);
   }
   function describeForm(directory, lang) {
     const workspace = new FileWorkspaceStore(directory).load();
     const text3 = words[lang];
-    const encounter = workspace.encounters[0];
+    const selection = readSelection(directory);
+    const space = activeSpace(workspace, selection);
+    const periods = workspace.periods.filter((item) => item.spaceId === space?.id);
+    const period = periods.find((item) => item.id === selection.periodId) ?? periods[0];
+    const encounter = visibleEncounter(workspace, space?.id, period);
     const listed = new Set(
       encounter ? workspace.attendance.filter((row) => row.encounterId === encounter.id && !row.voided).map((row) => row.personId) : []
     );
-    const periodId = workspace.periods[0]?.id;
-    const suggestions = encounter && periodId ? suggestVolunteers(workspace, encounter.id, periodId) : [];
+    const suggestions = encounter && period ? suggestVolunteers(workspace, encounter.id, period.id) : [];
     const names = new Map(workspace.people.map((person) => [person.id, person.name]));
-    const people = workspace.people.map((person) => {
+    const people = workspace.people.filter((person) => person.spaceId === space?.id).map((person) => {
       const row = encounter ? workspace.attendance.find((item) => item.encounterId === encounter.id && item.personId === person.id && !item.voided) : void 0;
-      const rate = attendanceRate(workspace, person.id, workspace.periods[0]?.id);
+      const rate = attendanceRate(workspace, person.id, period?.id);
       const score = rate.ratio == null ? text3.empty : `${rate.present}/${rate.counted}`;
       const mark = row ? text3[row.status] : text3.off;
       const entry = workspace.volunteers.find((item) => item.personId === person.id && item.encounterId === encounter?.id);
@@ -2480,8 +2524,8 @@ ${body}`;
     const suggestionNames = suggestions.map((item) => names.get(item.personId) ?? item.personId);
     const saved = new DocumentDraftStore(directory).readDocument();
     const collaboration = collaborationView(directory, lang);
-    const space = workspace.spaces[0];
-    const component = workspace.components.find((item) => item.id === encounter?.componentId) ?? workspace.components[0];
+    const components = workspace.components.filter((item) => item.spaceId === space?.id);
+    const component = components.find((item) => item.id === encounter?.componentId) ?? components[0];
     return {
       people,
       encounterTitle: encounter?.title ?? "",
@@ -2489,19 +2533,28 @@ ${body}`;
       draft: saved?.rows[0]?.note ?? "",
       warning: "",
       error: "",
-      refusal: quotaLine(workspace, lang),
+      refusal: quotaLine(workspace, encounter, lang),
       collaboration: collaboration.text,
       alternatives: collaboration.alternatives,
       spaceName: space?.name ?? "",
-      periodName: workspace.periods[0]?.name ?? "",
+      periodName: period?.name ?? "",
+      spaceId: space?.id ?? "",
+      periodId: period?.id ?? "",
+      spaces: workspace.spaces.map((item) => ({ id: item.id, name: item.name })),
+      periods: periods.map((item) => ({ id: item.id, name: item.name })),
       timeZone: space?.timeZone ?? "Etc/UTC",
       startsAt: encounter?.startsAt ?? "",
       componentName: component?.name ?? "",
+      components: components.map((item) => ({
+        id: item.id,
+        name: item.name,
+        encounters: workspace.encounters.filter((row) => row.componentId === item.id && row.spaceId === space?.id).length
+      })),
+      groups: workspace.groups.filter((item) => item.spaceId === space?.id).map((item) => ({ id: item.id, name: item.name })),
       registered: listed.size
     };
   }
-  function quotaLine(workspace, lang) {
-    const encounter = workspace.encounters[0];
+  function quotaLine(workspace, encounter, lang) {
     const interested = workspace.volunteers.find((item) => item.encounterId === encounter?.id && item.status === "interested");
     if (!encounter || !interested) return "";
     try {
@@ -2559,11 +2612,50 @@ ${body}`;
       alternatives: [],
       spaceName: "",
       periodName: "",
+      spaceId: "",
+      periodId: "",
+      spaces: [],
+      periods: [],
       timeZone: "Etc/UTC",
       startsAt: "",
       componentName: "",
+      components: [],
+      groups: [],
       registered: 0
     };
+  }
+  function selectionPath(directory) {
+    return path_default.join(directory, "interface-selection.json");
+  }
+  function readSelection(directory) {
+    const file = selectionPath(directory);
+    if (!existsSync(file)) return { spaceId: "", periodId: "" };
+    try {
+      const parsed = JSON.parse(readFileSync(file, "utf8"));
+      if (!parsed || typeof parsed !== "object") return { spaceId: "", periodId: "" };
+      const record = parsed;
+      return {
+        spaceId: typeof record.spaceId === "string" ? record.spaceId : "",
+        periodId: typeof record.periodId === "string" ? record.periodId : ""
+      };
+    } catch {
+      return { spaceId: "", periodId: "" };
+    }
+  }
+  function writeSelection(directory, selection) {
+    writeFileSync(selectionPath(directory), `${JSON.stringify(selection)}
+`);
+  }
+  function activeSpace(workspace, selection) {
+    return workspace.spaces.find((item) => item.id === selection.spaceId) ?? workspace.spaces[0];
+  }
+  function visibleEncounter(workspace, spaceId, period) {
+    const encounters = workspace.encounters.filter((item) => item.spaceId === spaceId);
+    if (!period) return encounters[0];
+    return encounters.find((item) => containsInstant(period.startsAt, period.endsAt, item.startsAt));
+  }
+  function textOf(value) {
+    return typeof value === "string" ? value : "";
   }
 
   // src/embedded-entry.ts

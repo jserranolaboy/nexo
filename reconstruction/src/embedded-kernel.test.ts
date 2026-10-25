@@ -62,7 +62,61 @@ test('the embedded kernel runs the window actions without node builtins', () => 
   assert.deepEqual(readFileSync(path.join(home, 'migracion', 'origen', 'workspace-v1.json')), source)
 })
 
+test('the embedded form writes a component, a group, and a period change', () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'nexo-embebido-form-'))
+  const opened = form(home, { op: 'open' })
+  assert.equal(opened.components[0]?.name, 'Componente sintético')
+  assert.deepEqual(opened.groups, [])
+  const named = form(home, { op: 'add-component', name: 'Coro sintético' })
+  assert.ok(named.components.some((item) => item.name === 'Coro sintético' && item.encounters === 0))
+  const grouped = form(home, { op: 'add-group', name: 'Grupo sintético' })
+  assert.equal(grouped.groups[0]?.name, 'Grupo sintético')
+  const blank = form(home, { op: 'add-group', name: ' ' })
+  assert.equal(blank.error, 'invalid-name')
+  assert.equal(blank.groups.length, 1)
+  const earlier = opened.periods.find((item) => item.name === 'Período anterior')
+  if (!earlier) throw new Error('missing earlier period')
+  const hidden = form(home, { op: 'select-period', periodId: earlier.id })
+  assert.equal(hidden.periodName, 'Período anterior')
+  assert.equal(hidden.encounterTitle, '')
+  const draft = form(home, { op: 'draft', text: 'Nota breve' })
+  assert.equal(draft.draft, 'Nota breve')
+  assert.equal(draft.warning, '')
+  const overflow = 'Linea uno\nLinea dos\nLinea tres\nLinea cuatro'
+  const warned = form(home, { op: 'draft', text: overflow })
+  assert.equal(warned.draft, 'Nota breve')
+  assert.equal(warned.warning.includes(overflow), true)
+  assert.equal(warned.warning.startsWith('No cabe:'), true)
+})
+
+function form(directory: string, body: Record<string, unknown>): {
+  components: { name: string; encounters: number }[]
+  groups: { name: string }[]
+  periods: { id: string; name: string }[]
+  periodName: string
+  encounterTitle: string
+  draft: string
+  warning: string
+  error: string
+} {
+  const context = boot(directory)
+  const value: unknown = vm.runInContext(`nexoForm(${JSON.stringify(JSON.stringify(body))})`, context)
+  if (typeof value !== 'string' || value.startsWith('Error:')) throw new Error(String(value))
+  return JSON.parse(value) as ReturnType<typeof form>
+}
+
 function press(directory: string, action: string, lang: string): string {
+  const context = boot(directory)
+  const value: unknown = vm.runInContext(
+    `nexoPress(${JSON.stringify(action)}, ${JSON.stringify(lang)})`,
+    context,
+  )
+  if (typeof value !== 'string') throw new Error('empty kernel result')
+  if (value.startsWith('Error:')) throw new Error(value)
+  return value
+}
+
+function boot(directory: string): vm.Context {
   const context: vm.Context = {
     nexoFs,
     TextEncoder,
@@ -75,13 +129,7 @@ function press(directory: string, action: string, lang: string): string {
   vm.createContext(context)
   vm.runInContext(readFileSync(kernelPath, 'utf8'), context, { filename: 'kernel.js' })
   context.NEXO_DIRECTORY = directory
-  const value: unknown = vm.runInContext(
-    `nexoPress(${JSON.stringify(action)}, ${JSON.stringify(lang)})`,
-    context,
-  )
-  if (typeof value !== 'string') throw new Error('empty kernel result')
-  if (value.startsWith('Error:')) throw new Error(value)
-  return value
+  return context
 }
 
 function nexoFs(op: string, payload: string): string {
