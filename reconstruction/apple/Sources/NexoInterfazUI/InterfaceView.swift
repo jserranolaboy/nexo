@@ -448,9 +448,10 @@ public struct InterfaceView: View {
                             .frame(width: 64, height: 64)
                             .background(avatarFill(index), in: Circle())
                         Text(person.name).font(.system(size: 16, weight: .medium))
-                        Text(person.listed ? (en ? "Member" : "Integrante") : (en ? "Off the list" : "Fuera de la lista"))
+                        Text(person.line)
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
+                            .lineLimit(2)
                     }
                     .padding(22)
                     .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
@@ -466,11 +467,21 @@ public struct InterfaceView: View {
             Text(en ? "Attendance" : "Asistencia")
                 .font(.system(size: 40, weight: .semibold))
                 .tracking(-1.2)
+            Text(en ? "Whole space" : "Todo el espacio")
+                .font(.system(size: 12, weight: .medium))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color(white: 0.9), in: Capsule())
             HStack {
-                Text(en ? "Individual attendance" : "Asistencia individual").font(.system(size: 18, weight: .semibold))
-                Spacer()
-                Text(en ? "Person" : "Persona").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(en ? "Person" : "Persona").frame(maxWidth: .infinity, alignment: .leading)
+                Text(en ? "Attendance" : "Asistencia").frame(width: 220, alignment: .leading)
+                if !model.screen.encounterTitle.isEmpty {
+                    Text(badge(model.screen.startsAt, en: en)).frame(width: 72, alignment: .trailing)
+                }
             }
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+            Text(en ? "Individual attendance" : "Asistencia individual").font(.system(size: 18, weight: .semibold))
             ForEach(model.screen.people.filter { matches($0.name) }) { person in
                 if person.listed {
                     Button(person.line) { model.send(["op": "cycle", "personId": person.id]) }
@@ -529,9 +540,18 @@ public struct InterfaceView: View {
 
     private func organize(_ en: Bool) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(en ? "Organization" : "Organización")
-                .font(.system(size: 40, weight: .semibold))
-                .tracking(-1.2)
+            HStack(alignment: .bottom) {
+                Text(en ? "Organization" : "Organización")
+                    .font(.system(size: 40, weight: .semibold))
+                    .tracking(-1.2)
+                Spacer()
+                Text(en ? "Create component" : "Crear componente")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(cardInk, in: RoundedRectangle(cornerRadius: 9))
+            }
             VStack(alignment: .leading, spacing: 12) {
                 Text("01").font(.system(size: 11)).foregroundStyle(.secondary)
                 Text(model.screen.componentName.isEmpty ? (en ? "Component" : "Componente") : model.screen.componentName)
@@ -542,6 +562,11 @@ public struct InterfaceView: View {
             .padding(24)
             .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
             .background(Color(red: 0.886, green: 0.890, blue: 0.906), in: RoundedRectangle(cornerRadius: 16))
+            Text(en ? "People groups" : "Grupos de personas")
+                .font(.system(size: 18, weight: .semibold))
+            Text(en ? "No groups" : "Sin grupos")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
             Text(en ? "Review Drive stays on this Mac. Nothing is uploaded." : "Revisar Drive se queda en este Mac. No hay subidas.")
                 .foregroundStyle(.secondary)
             if !model.screen.encounterTitle.isEmpty {
