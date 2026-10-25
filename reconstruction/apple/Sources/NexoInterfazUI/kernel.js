@@ -175,41 +175,6 @@
     return Uint8Array.from(bytes);
   }
 
-  // src/embedded/path.js
-  var sep = "/";
-  function normalize(value) {
-    const absolute = value.startsWith("/");
-    const parts = [];
-    for (const part of value.split("/")) {
-      if (part === "" || part === ".") continue;
-      if (part === "..") parts.pop();
-      else parts.push(part);
-    }
-    const body = parts.join("/");
-    return absolute ? `/${body}` : body;
-  }
-  function join(...parts) {
-    return normalize(parts.filter((part) => part != null && part !== "").join("/"));
-  }
-  function dirname(value) {
-    const normalized = normalize(value);
-    const index = normalized.lastIndexOf("/");
-    if (index < 0) return ".";
-    if (index === 0) return "/";
-    return normalized.slice(0, index);
-  }
-  function basename(value) {
-    const normalized = normalize(value);
-    const index = normalized.lastIndexOf("/");
-    return index < 0 ? normalized : normalized.slice(index + 1);
-  }
-  function resolve(value) {
-    if (typeof value !== "string" || value.length === 0) return "/";
-    return value.startsWith("/") ? normalize(value) : normalize(`/${value}`);
-  }
-  var path = { sep, join, dirname, basename, resolve };
-  var path_default = path;
-
   // src/errors.ts
   var DomainError = class extends Error {
     code;
@@ -219,6 +184,54 @@
       this.code = code;
     }
   };
+
+  // src/time.ts
+  var CANONICAL = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+  function parseInstant(value) {
+    if (!CANONICAL.test(value)) throw new DomainError("invalid-instant");
+    const parsed = Date.parse(value);
+    if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== value) {
+      throw new DomainError("invalid-instant");
+    }
+    return parsed;
+  }
+  function containsInstant(startsAt, endsAt, instant) {
+    const start = parseInstant(startsAt);
+    const end = parseInstant(endsAt);
+    const point = parseInstant(instant);
+    return start <= point && point < end;
+  }
+  function assertHalfOpen(startsAt, endsAt) {
+    if (parseInstant(startsAt) >= parseInstant(endsAt)) throw new DomainError("invalid-period");
+  }
+
+  // src/attendance.ts
+  var EMPTY = {
+    present: 0,
+    absent: 0,
+    excused: 0,
+    pending: 0,
+    counted: 0,
+    ratio: null
+  };
+  function attendanceRate(workspace, personId, periodId, componentId) {
+    const period = periodId ? workspace.periods.find((item) => item.id === periodId) : void 0;
+    if (periodId && !period) throw new DomainError("missing-period");
+    const encounters = new Map(workspace.encounters.map((encounter) => [encounter.id, encounter]));
+    const rate = { ...EMPTY };
+    for (const row of workspace.attendance) {
+      if (row.personId !== personId || row.voided) continue;
+      const encounter = encounters.get(row.encounterId);
+      if (!encounter || encounter.cancelled || !row.countsAttendance) continue;
+      if (period && encounter.spaceId !== period.spaceId) continue;
+      if (period && !containsInstant(period.startsAt, period.endsAt, row.eventInstant)) continue;
+      if (componentId && row.componentId !== componentId) continue;
+      rate[row.status] += 1;
+    }
+    rate.counted = rate.present + rate.absent;
+    rate.ratio = rate.counted > 0 ? rate.present / rate.counted : null;
+    return rate;
+  }
 
   // src/embedded/crypto.js
   function randomUUID() {
@@ -239,26 +252,6 @@
     const id = value.toLowerCase();
     if (!UUID.test(id)) throw new DomainError("invalid-id");
     return id;
-  }
-
-  // src/time.ts
-  var CANONICAL = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
-  function parseInstant(value) {
-    if (!CANONICAL.test(value)) throw new DomainError("invalid-instant");
-    const parsed = Date.parse(value);
-    if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== value) {
-      throw new DomainError("invalid-instant");
-    }
-    return parsed;
-  }
-  function containsInstant(startsAt, endsAt, instant) {
-    const start = parseInstant(startsAt);
-    const end = parseInstant(endsAt);
-    const point = parseInstant(instant);
-    return start <= point && point < end;
-  }
-  function assertHalfOpen(startsAt, endsAt) {
-    if (parseInstant(startsAt) >= parseInstant(endsAt)) throw new DomainError("invalid-period");
   }
 
   // src/model.ts
@@ -459,6 +452,9 @@
   }
 
   // src/commands.ts
+  function systemClock() {
+    return { now: () => (/* @__PURE__ */ new Date()).toISOString() };
+  }
   function draft(workspace, mutate) {
     const next = structuredClone(workspace);
     mutate(next);
@@ -631,6 +627,41 @@
       workspace.attendance.push(row);
     }
   }
+
+  // src/embedded/path.js
+  var sep = "/";
+  function normalize(value) {
+    const absolute = value.startsWith("/");
+    const parts = [];
+    for (const part of value.split("/")) {
+      if (part === "" || part === ".") continue;
+      if (part === "..") parts.pop();
+      else parts.push(part);
+    }
+    const body = parts.join("/");
+    return absolute ? `/${body}` : body;
+  }
+  function join(...parts) {
+    return normalize(parts.filter((part) => part != null && part !== "").join("/"));
+  }
+  function dirname(value) {
+    const normalized = normalize(value);
+    const index = normalized.lastIndexOf("/");
+    if (index < 0) return ".";
+    if (index === 0) return "/";
+    return normalized.slice(0, index);
+  }
+  function basename(value) {
+    const normalized = normalize(value);
+    const index = normalized.lastIndexOf("/");
+    return index < 0 ? normalized : normalized.slice(index + 1);
+  }
+  function resolve(value) {
+    if (typeof value !== "string" || value.length === 0) return "/";
+    return value.startsWith("/") ? normalize(value) : normalize(`/${value}`);
+  }
+  var path = { sep, join, dirname, basename, resolve };
+  var path_default = path;
 
   // src/documents.ts
   function textLines(text3) {
@@ -1320,6 +1351,284 @@ ${cursor}
     };
   }
 
+  // src/journey.ts
+  var SYNTHETIC = {
+    spaceId: "11111111-1111-4111-8111-111111111111",
+    periodId: "22222222-2222-4222-8222-222222222222",
+    alfaId: "33333333-3333-4333-8333-333333333331",
+    betaId: "33333333-3333-4333-8333-333333333332",
+    gammaId: "33333333-3333-4333-8333-333333333333",
+    componentId: "44444444-4444-4444-8444-444444444444",
+    encounterId: "55555555-5555-4555-8555-555555555555",
+    spaceName: "Espacio sint\xE9tico",
+    periodName: "Per\xEDodo sint\xE9tico",
+    alfaName: "Persona Alfa",
+    betaName: "Persona Beta",
+    gammaName: "Persona Gamma",
+    encounterTitle: "Encuentro sint\xE9tico",
+    timeZone: "Etc/UTC",
+    periodStart: "2026-01-01T00:00:00.000Z",
+    periodEnd: "2027-01-01T00:00:00.000Z",
+    encounterAt: "2026-10-24T15:00:00.000Z",
+    recordedAt: "2026-10-24T15:05:00.000Z"
+  };
+  function runFirstJourney(directory) {
+    const store = new FileWorkspaceStore(directory);
+    let workspace = store.initialize(emptyWorkspace());
+    workspace = createSpace(workspace, {
+      id: SYNTHETIC.spaceId,
+      name: SYNTHETIC.spaceName,
+      timeZone: SYNTHETIC.timeZone
+    });
+    workspace = addPeriod(workspace, {
+      id: SYNTHETIC.periodId,
+      spaceId: SYNTHETIC.spaceId,
+      name: SYNTHETIC.periodName,
+      startsAt: SYNTHETIC.periodStart,
+      endsAt: SYNTHETIC.periodEnd
+    });
+    workspace = addPerson(workspace, { id: SYNTHETIC.alfaId, spaceId: SYNTHETIC.spaceId, name: SYNTHETIC.alfaName });
+    workspace = addPerson(workspace, { id: SYNTHETIC.betaId, spaceId: SYNTHETIC.spaceId, name: SYNTHETIC.betaName });
+    workspace = addPerson(workspace, { id: SYNTHETIC.gammaId, spaceId: SYNTHETIC.spaceId, name: SYNTHETIC.gammaName });
+    workspace = addComponent(workspace, {
+      id: SYNTHETIC.componentId,
+      spaceId: SYNTHETIC.spaceId,
+      name: "Componente sint\xE9tico"
+    });
+    workspace = createEncounter(workspace, {
+      id: SYNTHETIC.encounterId,
+      spaceId: SYNTHETIC.spaceId,
+      title: SYNTHETIC.encounterTitle,
+      startsAt: SYNTHETIC.encounterAt,
+      componentId: SYNTHETIC.componentId,
+      personIds: [SYNTHETIC.alfaId, SYNTHETIC.betaId]
+    });
+    workspace = setAttendance(workspace, {
+      encounterId: SYNTHETIC.encounterId,
+      personId: SYNTHETIC.alfaId,
+      status: "present",
+      recordedAt: SYNTHETIC.recordedAt
+    });
+    workspace = setAttendance(workspace, {
+      encounterId: SYNTHETIC.encounterId,
+      personId: SYNTHETIC.betaId,
+      status: "absent",
+      recordedAt: SYNTHETIC.recordedAt
+    });
+    store.save(workspace, 0);
+  }
+  function describeJourney(directory, lang) {
+    const workspace = new FileWorkspaceStore(directory).load();
+    const space = workspace.spaces[0];
+    const labels = lang === "en" ? { present: "present", absent: "absent", excused: "excused", pending: "pending", none: "no record", empty: "no countable encounters" } : { present: "presente", absent: "ausente", excused: "excusada", pending: "por registrar", none: "sin registro", empty: "sin encuentros evaluables" };
+    const lines = [`${space.name} [${space.timeZone}]`];
+    for (const person of workspace.people) {
+      const row = workspace.attendance.find((item) => item.personId === person.id);
+      const rate = attendanceRate(workspace, person.id, workspace.periods[0]?.id);
+      const mark = row ? labels[row.status] : labels.none;
+      const score = rate.ratio == null ? labels.empty : `${rate.present}/${rate.counted}`;
+      lines.push(`${person.name}: ${mark}; ${score}`);
+    }
+    return lines.join("\n");
+  }
+
+  // src/form.ts
+  var FORM_CAPACITY = 4;
+  var CYCLE = ["pending", "present", "absent", "excused"];
+  var words = {
+    es: {
+      pending: "por registrar",
+      present: "presente",
+      absent: "ausente",
+      excused: "excusada",
+      off: "fuera de la lista",
+      empty: "sin encuentros evaluables",
+      suggestion: "Sugerencia",
+      none: "ninguna",
+      overflow: "No cabe",
+      interested: "interesado",
+      selected: "seleccionado",
+      declined: "declinado",
+      completed: "completado",
+      noShow: "no presentado"
+    },
+    en: {
+      pending: "pending",
+      present: "present",
+      absent: "absent",
+      excused: "excused",
+      off: "off the list",
+      empty: "no countable encounters",
+      suggestion: "Suggestion",
+      none: "none",
+      overflow: "Does not fit",
+      interested: "interested",
+      selected: "selected",
+      declined: "declined",
+      completed: "completed",
+      noShow: "no-show"
+    }
+  };
+  function applyForm(directory, payload) {
+    let request;
+    try {
+      request = JSON.parse(payload);
+    } catch {
+      return JSON.stringify(emptyScreen("invalid-form"));
+    }
+    const lang = request.lang === "en" ? "en" : "es";
+    try {
+      change(directory, request);
+      const warning = request.op === "draft" ? draftWarning(directory, request.text ?? "", lang) : "";
+      const screen = describeForm(directory, lang);
+      screen.warning = warning;
+      return JSON.stringify(screen);
+    } catch (error) {
+      const screen = safeDescribe(directory, lang);
+      screen.error = error instanceof DomainError ? error.code : error instanceof Error ? error.message : String(error);
+      return JSON.stringify(screen);
+    }
+  }
+  function change(directory, request) {
+    const store = new FileWorkspaceStore(directory);
+    const workspace = ensure(store);
+    if (request.op === "open" || request.op == null) return;
+    if (request.op === "add-person") {
+      store.save(addPerson(workspace, { spaceId: workspace.spaces[0].id, name: request.name ?? "" }), workspace.revision);
+      return;
+    }
+    if (request.op === "create-encounter") {
+      if (workspace.encounters.length > 0) return;
+      const roster = Array.isArray(request.roster) ? request.roster.filter((id) => typeof id === "string") : [];
+      store.save(
+        createEncounter(workspace, {
+          spaceId: workspace.spaces[0].id,
+          title: request.title ?? "",
+          startsAt: SYNTHETIC.encounterAt,
+          componentId: workspace.components[0].id,
+          personIds: roster,
+          volunteerCapacity: FORM_CAPACITY
+        }),
+        workspace.revision
+      );
+      return;
+    }
+    const encounter = workspace.encounters[0];
+    if (!encounter) throw new DomainError("missing-encounter");
+    if (request.op === "cycle") {
+      const row = workspace.attendance.find((item) => item.encounterId === encounter.id && item.personId === request.personId && !item.voided);
+      if (!row) throw new DomainError("not-on-roster");
+      const next = CYCLE[(CYCLE.indexOf(row.status) + 1) % CYCLE.length];
+      store.save(
+        setAttendance(workspace, {
+          encounterId: encounter.id,
+          personId: row.personId,
+          status: next,
+          recordedAt: systemClock().now()
+        }),
+        workspace.revision
+      );
+      return;
+    }
+    if (request.op === "interest") {
+      if (workspace.volunteers.some((item) => item.encounterId === encounter.id && item.personId === request.personId)) return;
+      store.save(
+        registerVolunteer(workspace, {
+          encounterId: encounter.id,
+          personId: request.personId ?? "",
+          registeredAt: systemClock().now()
+        }),
+        workspace.revision
+      );
+      return;
+    }
+    if (request.op === "choose") {
+      store.save(chooseVolunteer(workspace, encounter.id, request.personId ?? ""), workspace.revision);
+      return;
+    }
+    if (request.op === "draft") return;
+    throw new DomainError("unknown-form");
+  }
+  function ensure(store) {
+    if (existsSync(store.primaryPath())) return store.load();
+    let workspace = createSpace(store.initialize(emptyWorkspace()), {
+      name: SYNTHETIC.spaceName,
+      timeZone: SYNTHETIC.timeZone
+    });
+    const spaceId = workspace.spaces[0].id;
+    workspace = addPeriod(workspace, {
+      spaceId,
+      name: SYNTHETIC.periodName,
+      startsAt: SYNTHETIC.periodStart,
+      endsAt: SYNTHETIC.periodEnd
+    });
+    workspace = addComponent(workspace, { spaceId, name: "Componente sint\xE9tico" });
+    return store.save(workspace, 0);
+  }
+  function describeForm(directory, lang) {
+    const workspace = new FileWorkspaceStore(directory).load();
+    const text3 = words[lang];
+    const encounter = workspace.encounters[0];
+    const listed = new Set(
+      encounter ? workspace.attendance.filter((row) => row.encounterId === encounter.id && !row.voided).map((row) => row.personId) : []
+    );
+    const suggestions = encounter ? suggestVolunteers(workspace, encounter.id, workspace.periods[0].id) : [];
+    const names = new Map(workspace.people.map((person) => [person.id, person.name]));
+    const people = workspace.people.map((person) => {
+      const row = encounter ? workspace.attendance.find((item) => item.encounterId === encounter.id && item.personId === person.id && !item.voided) : void 0;
+      const rate = attendanceRate(workspace, person.id, workspace.periods[0]?.id);
+      const score = rate.ratio == null ? text3.empty : `${rate.present}/${rate.counted}`;
+      const mark = row ? text3[row.status] : text3.off;
+      const entry = workspace.volunteers.find((item) => item.personId === person.id && item.encounterId === encounter?.id);
+      return {
+        id: person.id,
+        name: person.name,
+        listed: listed.has(person.id),
+        line: `${person.name}: ${mark}; ${score}`,
+        volunteer: entry ? text3[entry.status] : ""
+      };
+    });
+    const suggestionNames = suggestions.map((item) => names.get(item.personId) ?? item.personId);
+    const saved = new DocumentDraftStore(directory).readDocument();
+    return {
+      people,
+      encounterTitle: encounter?.title ?? "",
+      suggestion: `${text3.suggestion}: ${suggestionNames.length > 0 ? suggestionNames.join(", ") : text3.none}`,
+      draft: saved?.rows[0]?.note ?? "",
+      warning: "",
+      error: ""
+    };
+  }
+  function draftWarning(directory, note, lang) {
+    const drafts = new DocumentDraftStore(directory);
+    const draft3 = {
+      title: "Acta sintetica",
+      heading: "Asistencia",
+      footer: "Cierre",
+      page: { width: 40, height: 6 },
+      rows: [{ id: "fila", label: "Nota", note }],
+      blocks: []
+    };
+    const result = drafts.exportDocument(draft3);
+    if (result.fits && result.draft) {
+      drafts.saveDocument(result.draft);
+      return "";
+    }
+    const full = result.problems.map((problem) => problem.text).join("\n");
+    return `${words[lang].overflow}: ${full}`;
+  }
+  function safeDescribe(directory, lang) {
+    try {
+      if (!existsSync(new FileWorkspaceStore(directory).primaryPath())) return emptyScreen("");
+      return describeForm(directory, lang);
+    } catch {
+      return emptyScreen("");
+    }
+  }
+  function emptyScreen(error) {
+    return { people: [], encounterTitle: "", suggestion: "", draft: "", warning: "", error };
+  }
+
   // src/collaboration-journey.ts
   var COLLABORATION = {
     spaceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
@@ -1427,115 +1736,6 @@ ${cursor}
   function kept(workspace, values) {
     const found = workspace.collaboration[0]?.entries[0]?.versions.map((version) => version.value) ?? [];
     return values.every((value) => found.includes(value)) && workspace.spaces.length === 1;
-  }
-
-  // src/attendance.ts
-  var EMPTY = {
-    present: 0,
-    absent: 0,
-    excused: 0,
-    pending: 0,
-    counted: 0,
-    ratio: null
-  };
-  function attendanceRate(workspace, personId, periodId, componentId) {
-    const period = periodId ? workspace.periods.find((item) => item.id === periodId) : void 0;
-    if (periodId && !period) throw new DomainError("missing-period");
-    const encounters = new Map(workspace.encounters.map((encounter) => [encounter.id, encounter]));
-    const rate = { ...EMPTY };
-    for (const row of workspace.attendance) {
-      if (row.personId !== personId || row.voided) continue;
-      const encounter = encounters.get(row.encounterId);
-      if (!encounter || encounter.cancelled || !row.countsAttendance) continue;
-      if (period && encounter.spaceId !== period.spaceId) continue;
-      if (period && !containsInstant(period.startsAt, period.endsAt, row.eventInstant)) continue;
-      if (componentId && row.componentId !== componentId) continue;
-      rate[row.status] += 1;
-    }
-    rate.counted = rate.present + rate.absent;
-    rate.ratio = rate.counted > 0 ? rate.present / rate.counted : null;
-    return rate;
-  }
-
-  // src/journey.ts
-  var SYNTHETIC = {
-    spaceId: "11111111-1111-4111-8111-111111111111",
-    periodId: "22222222-2222-4222-8222-222222222222",
-    alfaId: "33333333-3333-4333-8333-333333333331",
-    betaId: "33333333-3333-4333-8333-333333333332",
-    gammaId: "33333333-3333-4333-8333-333333333333",
-    componentId: "44444444-4444-4444-8444-444444444444",
-    encounterId: "55555555-5555-4555-8555-555555555555",
-    spaceName: "Espacio sint\xE9tico",
-    periodName: "Per\xEDodo sint\xE9tico",
-    alfaName: "Persona Alfa",
-    betaName: "Persona Beta",
-    gammaName: "Persona Gamma",
-    encounterTitle: "Encuentro sint\xE9tico",
-    timeZone: "Etc/UTC",
-    periodStart: "2026-01-01T00:00:00.000Z",
-    periodEnd: "2027-01-01T00:00:00.000Z",
-    encounterAt: "2026-10-24T15:00:00.000Z",
-    recordedAt: "2026-10-24T15:05:00.000Z"
-  };
-  function runFirstJourney(directory) {
-    const store = new FileWorkspaceStore(directory);
-    let workspace = store.initialize(emptyWorkspace());
-    workspace = createSpace(workspace, {
-      id: SYNTHETIC.spaceId,
-      name: SYNTHETIC.spaceName,
-      timeZone: SYNTHETIC.timeZone
-    });
-    workspace = addPeriod(workspace, {
-      id: SYNTHETIC.periodId,
-      spaceId: SYNTHETIC.spaceId,
-      name: SYNTHETIC.periodName,
-      startsAt: SYNTHETIC.periodStart,
-      endsAt: SYNTHETIC.periodEnd
-    });
-    workspace = addPerson(workspace, { id: SYNTHETIC.alfaId, spaceId: SYNTHETIC.spaceId, name: SYNTHETIC.alfaName });
-    workspace = addPerson(workspace, { id: SYNTHETIC.betaId, spaceId: SYNTHETIC.spaceId, name: SYNTHETIC.betaName });
-    workspace = addPerson(workspace, { id: SYNTHETIC.gammaId, spaceId: SYNTHETIC.spaceId, name: SYNTHETIC.gammaName });
-    workspace = addComponent(workspace, {
-      id: SYNTHETIC.componentId,
-      spaceId: SYNTHETIC.spaceId,
-      name: "Componente sint\xE9tico"
-    });
-    workspace = createEncounter(workspace, {
-      id: SYNTHETIC.encounterId,
-      spaceId: SYNTHETIC.spaceId,
-      title: SYNTHETIC.encounterTitle,
-      startsAt: SYNTHETIC.encounterAt,
-      componentId: SYNTHETIC.componentId,
-      personIds: [SYNTHETIC.alfaId, SYNTHETIC.betaId]
-    });
-    workspace = setAttendance(workspace, {
-      encounterId: SYNTHETIC.encounterId,
-      personId: SYNTHETIC.alfaId,
-      status: "present",
-      recordedAt: SYNTHETIC.recordedAt
-    });
-    workspace = setAttendance(workspace, {
-      encounterId: SYNTHETIC.encounterId,
-      personId: SYNTHETIC.betaId,
-      status: "absent",
-      recordedAt: SYNTHETIC.recordedAt
-    });
-    store.save(workspace, 0);
-  }
-  function describeJourney(directory, lang) {
-    const workspace = new FileWorkspaceStore(directory).load();
-    const space = workspace.spaces[0];
-    const labels = lang === "en" ? { present: "present", absent: "absent", excused: "excused", pending: "pending", none: "no record", empty: "no countable encounters" } : { present: "presente", absent: "ausente", excused: "excusada", pending: "por registrar", none: "sin registro", empty: "sin encuentros evaluables" };
-    const lines = [`${space.name} [${space.timeZone}]`];
-    for (const person of workspace.people) {
-      const row = workspace.attendance.find((item) => item.personId === person.id);
-      const rate = attendanceRate(workspace, person.id, workspace.periods[0]?.id);
-      const mark = row ? labels[row.status] : labels.none;
-      const score = rate.ratio == null ? labels.empty : `${rate.present}/${rate.counted}`;
-      lines.push(`${person.name}: ${mark}; ${score}`);
-    }
-    return lines.join("\n");
   }
 
   // src/migrate.ts
@@ -2284,6 +2484,16 @@ ${body}`;
       const directory = host.NEXO_DIRECTORY;
       if (!directory) return "Error: missing-directory";
       return pressInterface(directory, action, lang === "en" ? "en" : "es");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return `Error: ${message}`;
+    }
+  };
+  host.nexoForm = (payload) => {
+    try {
+      const directory = host.NEXO_DIRECTORY;
+      if (!directory) return "Error: missing-directory";
+      return applyForm(directory, payload);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return `Error: ${message}`;

@@ -4,7 +4,7 @@ import NexoInterfazUI
 @main
 struct NexoInterfazIOSApp: App {
     init() {
-        InterfaceBridge.press = EmbeddedKernel.press
+        InterfaceBridge.submit = EmbeddedKernel.submit
     }
 
     var body: some Scene {

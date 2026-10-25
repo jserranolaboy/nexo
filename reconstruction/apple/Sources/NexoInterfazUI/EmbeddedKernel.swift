@@ -4,6 +4,14 @@ import JavaScriptCore
 
 public enum EmbeddedKernel {
     public static func press(directory: URL, action: String, lang: String) -> String {
+        call(directory, "globalThis.nexoPress(\(jsonString(action)), \(jsonString(lang)))")
+    }
+
+    public static func submit(directory: URL, payload: String) -> String {
+        call(directory, "globalThis.nexoForm(\(jsonString(payload)))")
+    }
+
+    private static func call(_ directory: URL, _ script: String) -> String {
         let root = directory.standardizedFileURL.resolvingSymlinksInPath()
         let context = JSContext()!
         let bridge = FileBridge(root: root)
@@ -19,7 +27,7 @@ public enum EmbeddedKernel {
             return "Error: \(exception.toString() ?? "javascript")"
         }
         context.exception = nil
-        let value = context.evaluateScript("globalThis.nexoPress(\(jsonString(action)), \(jsonString(lang)))")
+        let value = context.evaluateScript(script)
         if let exception = context.exception {
             return "Error: \(exception.toString() ?? "javascript")"
         }

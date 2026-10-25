@@ -5,7 +5,7 @@ import NexoInterfazUI
 @main
 struct NexoInterfazApp: App {
     init() {
-        InterfaceBridge.press = MacKernel.press
+        InterfaceBridge.submit = MacKernel.submit
         NSApplication.shared.setActivationPolicy(.regular)
     }
 

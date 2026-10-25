@@ -2,15 +2,14 @@ import Foundation
 import NexoAdapterKit
 
 enum MacKernel {
-    static func press(directory: URL, action: String, lang: String) -> String {
+    static func submit(directory: URL, payload: String) -> String {
         do {
             let command = try NexoAdapterKit.command([
-                "interface-press",
+                "form",
                 "--directory", directory.path,
                 "--kernel", kernelDirectory().path,
                 "--node", nodePath(),
-                "--lang", lang,
-                "--action", action,
+                "--payload", payload,
             ])
             return try launch(command)
         } catch {

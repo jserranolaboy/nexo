@@ -15,7 +15,7 @@ public struct KernelCommand: Sendable {
 }
 
 public enum NexoAdapterKit {
-    public static let usage = "Uso: nexo-adapter COMANDO --directory DIR --kernel DIR [--node PATH] [--lang es|en] [--source PATH] [--version ID] [--action ACTION]"
+    public static let usage = "Uso: nexo-adapter COMANDO --directory DIR --kernel DIR [--node PATH] [--lang es|en] [--source PATH] [--version ID] [--action ACTION] [--payload JSON]"
 
     public static func command(_ arguments: [String]) throws -> KernelCommand {
         let invocation = try parse(arguments)
@@ -34,6 +34,7 @@ public enum NexoAdapterKit {
         if !invocation.source.isEmpty { forwarded.append(contentsOf: ["--source", invocation.source]) }
         if !invocation.version.isEmpty { forwarded.append(contentsOf: ["--version", invocation.version]) }
         if !invocation.action.isEmpty { forwarded.append(contentsOf: ["--action", invocation.action]) }
+        if !invocation.payload.isEmpty { forwarded.append(contentsOf: ["--payload", invocation.payload]) }
         return KernelCommand(
             node: invocation.node,
             arguments: forwarded,
@@ -51,6 +52,7 @@ private struct Invocation {
     var source: String
     var version: String
     var action: String
+    var payload: String
 }
 
 private func parse(_ arguments: [String]) throws -> Invocation {
@@ -64,6 +66,7 @@ private func parse(_ arguments: [String]) throws -> Invocation {
     var source = ""
     var version = ""
     var action = ""
+    var payload = ""
     var index = 1
     while index < arguments.count {
         let token = arguments[index]
@@ -79,6 +82,7 @@ private func parse(_ arguments: [String]) throws -> Invocation {
         case "--source": source = value
         case "--version": version = value
         case "--action": action = value
+        case "--payload": payload = value
         default: throw AdapterError(NexoAdapterKit.usage)
         }
     }
@@ -93,7 +97,8 @@ private func parse(_ arguments: [String]) throws -> Invocation {
         lang: lang,
         source: source,
         version: version,
-        action: action
+        action: action,
+        payload: payload
     )
 }
 

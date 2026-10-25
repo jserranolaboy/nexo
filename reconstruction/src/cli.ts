@@ -1,4 +1,5 @@
 import { describeCollaboration, resolvePausedAlternative, runCollaborationJourney } from './collaboration-journey.ts'
+import { applyForm } from './form.ts'
 import { describeInterface, pressInterface, runInterface } from './interface.ts'
 import { describeJourney, runFirstJourney } from './journey.ts'
 import { migrateLegacyFile, revertToPreviousCopy } from './migrate.ts'
@@ -7,7 +8,7 @@ import { describeVolunteers, runVolunteerJourney } from './volunteer-journey.ts'
 const messages = {
   es: {
     usage:
-      'Uso: journey | show | volunteers | volunteers-show | collaborate | collaborate-show | interface | interface-show --directory DIR [--lang es|en] | interface-press --directory DIR --action ACTION [--lang es|en] | collaborate-choose --directory DIR --version ID [--lang es|en] | migrate --directory DIR --source workspace-v1.json [--lang es|en] | migrate-revert --directory DIR [--lang es|en]',
+      'Uso: journey | show | volunteers | volunteers-show | collaborate | collaborate-show | interface | interface-show --directory DIR [--lang es|en] | interface-press --directory DIR --action ACTION [--lang es|en] | form --directory DIR --payload JSON | collaborate-choose --directory DIR --version ID [--lang es|en] | migrate --directory DIR --source workspace-v1.json [--lang es|en] | migrate-revert --directory DIR [--lang es|en]',
     saved: 'Espacio sintético guardado. La asistencia queda en el archivo local.',
     volunteers: 'Voluntariado sintético guardado. La selección quedó en el archivo local.',
     kept: 'Guardado local conservado. El puerto de sincronización falló después.',
@@ -17,7 +18,7 @@ const messages = {
   },
   en: {
     usage:
-      'Usage: journey | show | volunteers | volunteers-show | collaborate | collaborate-show | interface | interface-show --directory DIR [--lang es|en] | interface-press --directory DIR --action ACTION [--lang es|en] | collaborate-choose --directory DIR --version ID [--lang es|en] | migrate --directory DIR --source workspace-v1.json [--lang es|en] | migrate-revert --directory DIR [--lang es|en]',
+      'Usage: journey | show | volunteers | volunteers-show | collaborate | collaborate-show | interface | interface-show --directory DIR [--lang es|en] | interface-press --directory DIR --action ACTION [--lang es|en] | form --directory DIR --payload JSON | collaborate-choose --directory DIR --version ID [--lang es|en] | migrate --directory DIR --source workspace-v1.json [--lang es|en] | migrate-revert --directory DIR [--lang es|en]',
     saved: 'Synthetic space saved. Attendance remains in the local file.',
     volunteers: 'Synthetic volunteering saved. The selection remains in the local file.',
     kept: 'Local save kept. The sync port failed afterwards.',
@@ -72,6 +73,19 @@ if (!parsed.command || !parsed.directory) {
   process.stdout.write(`${runInterface(parsed.directory, parsed.lang)}\n`)
 } else if (parsed.command === 'interface-show') {
   process.stdout.write(`${describeInterface(parsed.directory, parsed.lang)}\n`)
+} else if (parsed.command === 'form') {
+  if (!parsed.payload) {
+    process.stderr.write(`${copy.usage}\n`)
+    process.exitCode = 1
+  } else {
+    try {
+      process.stdout.write(`${applyForm(parsed.directory, parsed.payload)}\n`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      process.stderr.write(`Error: ${message}\n`)
+      process.exitCode = 1
+    }
+  }
 } else if (parsed.command === 'interface-press') {
   if (!parsed.action) {
     process.stderr.write(`${copy.usage}\n`)
@@ -97,11 +111,13 @@ function parse(argv: string[]): {
   version: string
   source: string
   action: string
+  payload: string
 } {
   let directory = ''
   let version = ''
   let source = ''
   let action = ''
+  let payload = ''
   let lang: 'es' | 'en' = 'es'
   const command = argv[0] ?? ''
   for (let index = 1; index < argv.length; index += 1) {
@@ -110,6 +126,7 @@ function parse(argv: string[]): {
     else if (token === '--version') version = argv[(index += 1)] ?? ''
     else if (token === '--source') source = argv[(index += 1)] ?? ''
     else if (token === '--action') action = argv[(index += 1)] ?? ''
+    else if (token === '--payload') payload = argv[(index += 1)] ?? ''
     else if (token === '--lang') {
       const value = argv[(index += 1)]
       if (value !== 'es' && value !== 'en') throw new Error('unsupported language')
@@ -118,5 +135,5 @@ function parse(argv: string[]): {
       throw new Error(`unknown argument ${token}`)
     }
   }
-  return { command, directory, lang, version, source, action }
+  return { command, directory, lang, version, source, action, payload }
 }
